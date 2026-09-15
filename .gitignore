@@ -25,5 +25,10 @@ wandb/
 *.pth
 *.ckpt
 
+# Acquired external reference repositories (managed as separate Git worktrees)
+/external/ijepa/
+/external/fairseq/
+/external/mae/
+
 # OS
 .DS_Store
