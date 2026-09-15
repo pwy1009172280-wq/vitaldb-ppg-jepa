@@ -1,0 +1,29 @@
+# Data
+data/
+checkpoints/
+results/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Environments / secrets
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# Experiment tools
+wandb/
+
+# Models
+*.pt
+*.pth
+*.ckpt
+
+# OS
+.DS_Store
