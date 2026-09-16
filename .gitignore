@@ -1,5 +1,6 @@
 # Data
-/data/
+/data/raw/
+/data/processed/
 checkpoints/
 results/
 
