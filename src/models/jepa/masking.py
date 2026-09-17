@@ -1,31 +1,28 @@
 from dataclasses import dataclass
 import torch
-
-def _count(n,ratio,name):
-    if not 0<=ratio<=1: raise ValueError(f"{name}_ratio must be in [0, 1]")
-    return int(n*ratio + 0.5)  # explicit round-half-up
-
 @dataclass
 class JEPAMask:
-    context_mask: torch.Tensor
-    target_mask: torch.Tensor
-    context_indices: torch.Tensor
-    target_indices: torch.Tensor
-    context_pos_ids: torch.Tensor
-    target_pos_ids: torch.Tensor
+    context_mask:torch.Tensor; target_mask:torch.Tensor; context_indices:torch.Tensor; target_indices:torch.Tensor; context_pos_ids:torch.Tensor; target_pos_ids:torch.Tensor
+def make_target_block_masks(batch_size,num_tokens,num_target_blocks,target_block_length,*,generator=None,device=None):
+    if batch_size<=0 or num_tokens<=0 or num_target_blocks<=0 or target_block_length<=0: raise ValueError('batch size, token count, block count, and block length must be > 0')
+    total=num_target_blocks*target_block_length
+    if total>=num_tokens: raise ValueError(f'JEPA target blocks require at least one context token: num_tokens={num_tokens}, requested_target_tokens={total}')
+    if generator is not None and generator.device.type!='cpu': raise ValueError('formal JEPA temporal-mask generator must be a CPU torch.Generator')
+    slack=num_tokens-total; all_masks=[]; all_indices=[]
+    for _ in range(batch_size):
+        cuts=torch.sort(torch.randperm(slack+num_target_blocks,generator=generator)[:num_target_blocks])[0]; gaps=torch.diff(torch.cat((torch.tensor([-1]),cuts,torch.tensor([slack+num_target_blocks-1]))))-1; starts=[]; cursor=int(gaps[0])
+        for j in range(num_target_blocks): starts.append(cursor); cursor+=target_block_length+int(gaps[j+1])
+        all_indices.append(torch.cat([torch.arange(s,s+target_block_length) for s in starts]))
+    ti=torch.stack(all_indices).to(device=device); tm=torch.zeros((batch_size,num_tokens),dtype=torch.bool,device=device); tm.scatter_(1,ti,True); cm=~tm; ids=torch.arange(num_tokens,device=device).expand(batch_size,-1); ci=cm.nonzero().view(batch_size,num_tokens-total,2)[...,1]; return JEPAMask(cm,tm,ci,ti,torch.gather(ids,1,ci),ti)
 
-def make_jepa_masks(batch_size:int,num_tokens:int,context_ratio:float,target_ratio:float,*,generator=None,device=None):
-    if batch_size<=0: raise ValueError("batch_size must be > 0")
-    if num_tokens<=0: raise ValueError("num_tokens must be > 0")
-    kc=_count(num_tokens,context_ratio,"context"); kt=_count(num_tokens,target_ratio,"target")
-    if kc+kt>num_tokens: raise ValueError(f"requested context ({kc}) + target ({kt}) tokens exceed {num_tokens}")
+# Retained for the existing common-mask regression; formal JEPA uses the
+# target-block sampler above.
+def make_jepa_masks(batch_size,num_tokens,context_ratio,target_ratio,*,generator=None,device=None):
+    if batch_size<=0 or num_tokens<=0: raise ValueError('batch_size and num_tokens must be > 0')
+    if not 0<=context_ratio<=1 or not 0<=target_ratio<=1: raise ValueError('ratios must be in [0, 1]')
+    kc=int(num_tokens*context_ratio+0.5); kt=int(num_tokens*target_ratio+0.5)
+    if kc+kt>num_tokens: raise ValueError('requested masks exceed token count')
     ci=[]; ti=[]
     for _ in range(batch_size):
-        perm=torch.randperm(num_tokens,generator=generator)
-        ci.append(perm[:kc]); ti.append(perm[kc:kc+kt])
-    context_indices=torch.stack(ci).to(device=device); target_indices=torch.stack(ti).to(device=device)
-    context_mask=torch.zeros((batch_size,num_tokens),dtype=torch.bool,device=device); target_mask=torch.zeros_like(context_mask)
-    if kc: context_mask.scatter_(1,context_indices,True)
-    if kt: target_mask.scatter_(1,target_indices,True)
-    ids=torch.arange(num_tokens,device=device,dtype=torch.long).unsqueeze(0).expand(batch_size,-1).contiguous()
-    return JEPAMask(context_mask,target_mask,context_indices,target_indices,torch.gather(ids,1,context_indices),torch.gather(ids,1,target_indices))
+        perm=torch.randperm(num_tokens,generator=generator); ci.append(perm[:kc]); ti.append(perm[kc:kc+kt])
+    c=torch.stack(ci).to(device=device); t=torch.stack(ti).to(device=device); cm=torch.zeros((batch_size,num_tokens),dtype=torch.bool,device=device); tm=torch.zeros_like(cm); cm.scatter_(1,c,True); tm.scatter_(1,t,True); ids=torch.arange(num_tokens,device=device).expand(batch_size,-1); return JEPAMask(cm,tm,c,t,torch.gather(ids,1,c),torch.gather(ids,1,t))
