@@ -36,7 +36,7 @@ def _header(path: Path) -> tuple[int, float, int, tuple[str, ...], tuple[str, ..
     for line in lines[1 : nchan + 1]:
         fields = line.split()
         fmt = fields[1].split("/")[0]
-        fmts.append(int(fmt))
+        fmts.append(int(fmt.split("x", 1)[0].split("+", 1)[0]))
         match = re.match(r"([^()]+)\(([^)]*)\)(?:/([^ ]+))?", fields[2])
         gains.append(float(match.group(1)) if match else 1.0)
         baselines.append(float(match.group(2) or 0.0) if match else 0.0)
@@ -163,7 +163,7 @@ def build_ppg_bp_index(root: str | Path) -> Path:
     rows: list[RecordIndexRow] = []
     with zipfile.ZipFile(root / "incoming" / "ppg-bp-v5.zip") as archive:
         for name in sorted(n for n in archive.namelist() if n.lower().endswith(".txt") and "/" in n):
-            match = re.search(r"/(\\d+)_([123])\\.txt$", name)
+            match = re.search(r"/(\d+)_([123])\.txt$", name)
             if not match:
                 continue
             subject, trial = match.groups()
@@ -201,7 +201,7 @@ def build_wesad_index(root: str | Path) -> Path:
     root = Path(root)
     rows: list[RecordIndexRow] = []
     with zipfile.ZipFile(root / "incoming" / "WESAD.zip") as archive:
-        subjects = sorted(n for n in archive.namelist() if re.search(r"WESAD/S\\d+/S\\d+\\.pkl$", n))
+        subjects = sorted(n for n in archive.namelist() if re.search(r"WESAD/S\d+/S\d+\.pkl$", n))
     for source in subjects:
         subject = Path(source).stem
         for body, key, fs, channels in WESAD_VARIANTS:
