@@ -9,8 +9,6 @@ from __future__ import annotations
 import csv
 import re
 from pathlib import Path
-import numpy as np
-
 from src.data.base import BaseDataset
 from src.data.index import RecordIndexRow, read_jsonl, write_hash, write_jsonl
 from src.data.samples import UnifiedSample
@@ -54,6 +52,8 @@ def _header_metadata(path: Path) -> tuple[int, float, int, tuple[str, ...], tupl
 
 def _read_wfdb_without_wfdb(header: Path, n_channels: int, n_samples: int) -> tuple[np.ndarray, float, tuple[str, ...], tuple[str, ...]]:
     """Read the PTB-XL 16-bit source format without adding a new dependency."""
+    import numpy as np
+
     lines = header.read_text(encoding="utf-8", errors="replace").splitlines()
     first = lines[0].split()
     fs = float(first[2].split("/")[0])
@@ -150,6 +150,8 @@ class PTBXLReader(BaseDataset):
         return self.read_record(row)
 
     def read_record(self, row: RecordIndexRow) -> UnifiedSample:
+        import numpy as np
+
         header = self.root / row.source_path
         try:
             import wfdb

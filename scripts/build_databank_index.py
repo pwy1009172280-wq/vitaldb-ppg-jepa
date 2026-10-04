@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from src.datasets import PPGDaLiAReader, PTBXLReader
 from src.datasets.ppg_dalia import build_index as build_ppg_dalia_index
 from src.datasets.ptb_xl import build_index as build_ptb_xl_index
 
@@ -17,9 +16,11 @@ def main() -> None:
     args = parser.parse_args()
     if args.dataset == "ptb-xl":
         index = build_ptb_xl_index(args.root)
+        from src.datasets.ptb_xl import PTBXLReader
         reader = PTBXLReader(args.root, index)
     else:
         index = build_ppg_dalia_index(args.root)
+        from src.datasets.ppg_dalia import PPGDaLiAReader
         reader = PPGDaLiAReader(args.root, index)
     print(f"dataset={args.dataset}")
     print(f"index={index}")

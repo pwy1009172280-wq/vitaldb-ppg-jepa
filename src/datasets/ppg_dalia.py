@@ -13,8 +13,6 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from src.data.base import BaseDataset
 from src.data.index import RecordIndexRow, read_jsonl, write_hash, write_jsonl
 from src.data.samples import UnifiedSample
@@ -90,6 +88,8 @@ def build_index(root: str | Path, output: str | Path | None = None) -> Path:
 
 
 def _extract_signal(payload: Any, device: str, key: str) -> np.ndarray:
+    import numpy as np
+
     signal = payload["signal"] if isinstance(payload, dict) and "signal" in payload else payload
     if not isinstance(signal, dict) or device not in signal or key not in signal[device]:
         raise KeyError(f"source signal {device}:{key} not found")
@@ -124,6 +124,8 @@ class PPGDaLiAReader(BaseDataset):
         return self.read_record(self.rows[index])
 
     def read_record(self, row: RecordIndexRow) -> UnifiedSample:
+        import numpy as np
+
         member = row.source_path.split("!", 1)[1]
         device, key = row.source_variant.split(":", 1)
         scratch = self.scratch_dir or Path(tempfile.gettempdir())
