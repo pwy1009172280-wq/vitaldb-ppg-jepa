@@ -37,7 +37,7 @@ def _header(path: Path) -> tuple[int, float, int, tuple[str, ...], tuple[str, ..
         fields = line.split()
         fmt = fields[1].split("/")[0]
         fmts.append(int(fmt))
-        match = re.match(r"([^()]+)\\(([^)]*)\\)(?:/([^ ]+))?", fields[2])
+        match = re.match(r"([^()]+)\(([^)]*)\)(?:/([^ ]+))?", fields[2])
         gains.append(float(match.group(1)) if match else 1.0)
         baselines.append(float(match.group(2) or 0.0) if match else 0.0)
         units.append(match.group(3) if match and match.group(3) else "UNKNOWN")
