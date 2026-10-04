@@ -114,10 +114,11 @@ class ECGReader(_Indexed):
     def __getitem__(self, index: int) -> UnifiedSample:
         row = self.rows[index]
         header = self.root / row.source_path
-        if header.suffix == ".hea":
+        if header.suffix == ".hea" and header.with_suffix(".dat").exists():
             signal, fs, names, units = _read_wfdb(header, _header(header))
         else:
-            signal, fs, names, units = _read_mat(header, header.with_suffix(".hea"))
+            mat = header if header.suffix == ".mat" else header.with_suffix(".mat")
+            signal, fs, names, units = _read_mat(mat, mat.with_suffix(".hea"))
         return UnifiedSample(signal=signal, subject_id=row.subject_id, recording_id=row.record_id, dataset=row.dataset, modality=row.modality, sampling_rate_hz=fs, start_time_s=0.0, end_time_s=signal.shape[1] / fs, channel_names=names, units=units, provenance={"source_path": row.source_path, "source_format": row.source_format, "source_variant": row.source_variant, "dataset_version": row.dataset_version, "reader": type(self).__name__, "reader_version": "1.0"}, metadata={"continuity": row.continuity, "role_reference": row.role_reference})
 
 
