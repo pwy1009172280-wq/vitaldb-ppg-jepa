@@ -65,7 +65,7 @@ def _read_wfdb_without_wfdb(header: Path, n_channels: int, n_samples: int) -> tu
         fields = line.split()
         if len(fields) < 3 or int(fields[1]) != 16:
             raise RuntimeError(f"unsupported source-native WFDB format in {header}")
-        match = re.match(r"([^(/]+)\\(([^)]*)\\)(?:/([^ ]+))?", fields[2])
+        match = re.match(r"([^(/]+)\(([^)]*)\)(?:/([^ ]+))?", fields[2])
         if not match:
             raise RuntimeError(f"cannot parse gain/baseline in {header}: {fields[2]}")
         gains.append(float(match.group(1)))
