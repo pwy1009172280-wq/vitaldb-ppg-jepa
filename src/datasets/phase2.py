@@ -63,8 +63,8 @@ def _read_wfdb(header: Path, meta: tuple) -> tuple[np.ndarray, float, tuple[str,
         digital = raw.reshape(nsamp, nchan).T
     elif fmt == 212 and nchan == 2:
         raw = np.frombuffer(dat, dtype=np.uint8)
-        pairs = min((nsamp + 1) // 2, raw.size // 3)
-        raw = raw[: pairs * 3].reshape(-1, 3)
+        frames = min(nsamp, raw.size // 3)
+        raw = raw[: frames * 3].reshape(-1, 3)
         a = raw[:, 0].astype(np.int16) | ((raw[:, 1] & 0x0F).astype(np.int16) << 8)
         b = raw[:, 2].astype(np.int16) | ((raw[:, 1] >> 4).astype(np.int16) << 8)
         a[a >= 2048] -= 4096
