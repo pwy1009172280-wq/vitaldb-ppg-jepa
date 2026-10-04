@@ -6,11 +6,9 @@ No resampling or windowing is performed.  PTB-XL's official 100 Hz and
 
 from __future__ import annotations
 
-import ast
 import csv
+import re
 from pathlib import Path
-from typing import Any
-
 import numpy as np
 
 from src.data.base import BaseDataset
@@ -52,6 +50,35 @@ def _header_metadata(path: Path) -> tuple[int, float, int, tuple[str, ...], tupl
         names.extend([f"channel_{i}" for i in range(len(names), n_channels)])
         units.extend(["UNKNOWN"] * (n_channels - len(units)))
     return n_channels, fs, n_samples, tuple(names), tuple(units)
+
+
+def _read_wfdb_without_wfdb(header: Path, n_channels: int, n_samples: int) -> tuple[np.ndarray, float, tuple[str, ...], tuple[str, ...]]:
+    """Read the PTB-XL 16-bit source format without adding a new dependency."""
+    lines = header.read_text(encoding="utf-8", errors="replace").splitlines()
+    first = lines[0].split()
+    fs = float(first[2].split("/")[0])
+    names: list[str] = []
+    units: list[str] = []
+    gains: list[float] = []
+    baselines: list[float] = []
+    for line in lines[1 : n_channels + 1]:
+        fields = line.split()
+        if len(fields) < 3 or int(fields[1]) != 16:
+            raise RuntimeError(f"unsupported source-native WFDB format in {header}")
+        match = re.match(r"([^(/]+)\\(([^)]*)\\)(?:/([^ ]+))?", fields[2])
+        if not match:
+            raise RuntimeError(f"cannot parse gain/baseline in {header}: {fields[2]}")
+        gains.append(float(match.group(1)))
+        baselines.append(float(match.group(2) or 0))
+        units.append(match.group(3) or "UNKNOWN")
+        names.append(fields[-1] if fields[-1] else "UNKNOWN")
+    dat = np.fromfile(header.with_suffix(".dat"), dtype="<i2")
+    expected = n_channels * n_samples
+    if dat.size < expected:
+        raise RuntimeError(f"truncated WFDB data file: {header.with_suffix('.dat')}")
+    digital = dat[:expected].reshape(n_samples, n_channels).astype(np.float32)
+    physical = (digital - np.asarray(baselines, dtype=np.float32)) / np.asarray(gains, dtype=np.float32)
+    return physical.T, fs, tuple(names), tuple(units)
 
 
 def build_index(root: str | Path, output: str | Path | None = None) -> Path:
@@ -123,16 +150,17 @@ class PTBXLReader(BaseDataset):
         return self.read_record(row)
 
     def read_record(self, row: RecordIndexRow) -> UnifiedSample:
+        header = self.root / row.source_path
         try:
             import wfdb
-        except ImportError as exc:
-            raise RuntimeError("PTBXLReader requires the existing WFDB runtime dependency") from exc
-        header = self.root / row.source_path
-        record = wfdb.rdrecord(str(header.with_suffix("")))
-        signal = np.asarray(record.p_signal, dtype=np.float32).T
-        fs = float(record.fs)
-        names = tuple(str(x) for x in (record.sig_name or row.channel_name))
-        units = tuple(str(x) if x else "UNKNOWN" for x in (getattr(record, "units", None) or row.unit))
+        except ImportError:
+            signal, fs, names, units = _read_wfdb_without_wfdb(header, len(row.channel_name), row.n_samples or 0)
+        else:
+            record = wfdb.rdrecord(str(header.with_suffix("")))
+            signal = np.asarray(record.p_signal, dtype=np.float32).T
+            fs = float(record.fs)
+            names = tuple(str(x) for x in (record.sig_name or row.channel_name))
+            units = tuple(str(x) if x else "UNKNOWN" for x in (getattr(record, "units", None) or row.unit))
         return UnifiedSample(
             signal=signal,
             subject_id=row.subject_id,
