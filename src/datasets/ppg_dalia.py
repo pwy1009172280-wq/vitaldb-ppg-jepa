@@ -90,10 +90,15 @@ def build_index(root: str | Path, output: str | Path | None = None) -> Path:
 def _extract_signal(payload: Any, device: str, key: str) -> np.ndarray:
     import numpy as np
 
-    signal = payload["signal"] if isinstance(payload, dict) and "signal" in payload else payload
-    if not isinstance(signal, dict) or device not in signal or key not in signal[device]:
+    def lookup(mapping: dict[Any, Any], name: str) -> Any:
+        return mapping.get(name, mapping.get(name.encode("ascii")))
+
+    signal = lookup(payload, "signal") if isinstance(payload, dict) else payload
+    device_data = lookup(signal, device) if isinstance(signal, dict) else None
+    value_data = lookup(device_data, key) if isinstance(device_data, dict) else None
+    if value_data is None:
         raise KeyError(f"source signal {device}:{key} not found")
-    value = np.asarray(signal[device][key])
+    value = np.asarray(value_data)
     if value.ndim == 1:
         return value[np.newaxis, :]
     if value.ndim != 2:
@@ -134,7 +139,7 @@ class PPGDaLiAReader(BaseDataset):
             with zipfile.ZipFile(self.archive_path) as archive, archive.open(member) as source, extracted.open("wb") as target:
                 target.write(source.read())
             with extracted.open("rb") as handle:
-                payload = pickle.load(handle)
+                payload = pickle.load(handle, encoding="latin1")
         signal = _extract_signal(payload, device, key).astype(np.float32, copy=False)
         fs = float(row.sampling_rate_hz[0] or 0)
         duration = signal.shape[1] / fs
