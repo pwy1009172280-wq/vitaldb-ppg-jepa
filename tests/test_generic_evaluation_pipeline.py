@@ -6,7 +6,8 @@ import pytest
 from src.data import UnifiedSample
 from src.data.samples import SUBJECT_IDENTITY_RESOLVED
 from src.downstream.core import (
-    DATA_READY_FOR_EVALUATION,
+    DATA_BLOCKED,
+    PROTOCOL_BLOCKED,
     READY_FOR_EVALUATION,
     LabelTaskAdapter,
     adapt_targets,
@@ -49,13 +50,23 @@ def test_task_adapter_never_guesses_missing_target():
         LabelTaskAdapter("NOT_APPROVED").adapt(_sample())
 
 
+def test_readiness_plumbing_failure_is_data_blocked():
+    blocked = assess_evaluation_readiness(
+        reader_ok=False, labels_ok=True, identities_ok=True, adapter_ok=True,
+    )
+    assert blocked.state == DATA_BLOCKED
+    assert blocked.plumbing_blockers == ("reader",)
+    assert not blocked.ready
+
+
 def test_readiness_separates_data_plumbing_from_protocol():
     data_ready = assess_evaluation_readiness(
         reader_ok=True, labels_ok=True, identities_ok=True, adapter_ok=True,
     )
-    assert data_ready.state == DATA_READY_FOR_EVALUATION
+    assert data_ready.state == PROTOCOL_BLOCKED
     assert data_ready.protocol_blocked
     assert set(data_ready.protocol_blockers) == {"protocol", "target", "split", "metric", "aggregation"}
+    assert not data_ready.ready
 
     protocol = EvaluationProtocol("classification", "linear_probe", ("accuracy",), "sample", True)
     ready = assess_evaluation_readiness(

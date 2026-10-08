@@ -23,6 +23,7 @@ from .probe import (
 from .protocol import DownstreamPolicy
 from .results import load_results, save_results
 from .readiness import (
+    DATA_BLOCKED,
     DATA_READY_FOR_EVALUATION,
     PROTOCOL_BLOCKED,
     READY_FOR_EVALUATION,
@@ -40,6 +41,6 @@ __all__ = [
     "ProbeModel", "make_prediction_batch", "DownstreamPolicy", "load_results",
     "save_results", "aggregate_predictions", "TaskAdapter", "TaskTarget",
     "LabelTaskAdapter", "adapt_targets", "EvaluationReadiness",
-    "DATA_READY_FOR_EVALUATION", "PROTOCOL_BLOCKED", "READY_FOR_EVALUATION",
+    "DATA_BLOCKED", "DATA_READY_FOR_EVALUATION", "PROTOCOL_BLOCKED", "READY_FOR_EVALUATION",
     "assess_evaluation_readiness",
 ]

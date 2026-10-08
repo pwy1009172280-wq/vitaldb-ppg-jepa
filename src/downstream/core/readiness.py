@@ -3,9 +3,14 @@
 from dataclasses import dataclass
 from typing import Any
 
-DATA_READY_FOR_EVALUATION = "DATA_READY_FOR_EVALUATION"
+# Outcome states (fatal blockers -> never ready)
+DATA_BLOCKED = "DATA_BLOCKED"
 PROTOCOL_BLOCKED = "PROTOCOL_BLOCKED"
 READY_FOR_EVALUATION = "READY_FOR_EVALUATION"
+
+# Legacy alias kept for older consumers/audit tables; the assessor no longer
+# returns it, but the string remains stable for backward reading.
+DATA_READY_FOR_EVALUATION = "DATA_READY_FOR_EVALUATION"
 
 
 @dataclass(frozen=True)
@@ -21,6 +26,10 @@ class EvaluationReadiness:
     @property
     def protocol_blocked(self) -> bool:
         return bool(self.protocol_blockers)
+
+    @property
+    def data_blocked(self) -> bool:
+        return bool(self.plumbing_blockers)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -42,10 +51,12 @@ def assess_evaluation_readiness(
     metric_config: tuple[str, ...] | None = None,
     aggregation: str | None = None,
 ) -> EvaluationReadiness:
-    """Classify plumbing separately from protocol completeness.
+    """Classify plumbing separately from protocol completeness (fail closed).
 
-    The caller must provide protocol references; this function never selects
-    a target, split, metric, or aggregation on its own.
+    Plumbing failures -> DATA_BLOCKED; data capable but no scientific protocol
+    -> PROTOCOL_BLOCKED; only an explicit, complete protocol -> READY.
+    The caller must provide protocol references; this function never selects a
+    target, split, metric, or aggregation on its own.
     """
 
     plumbing = tuple(
@@ -57,7 +68,7 @@ def assess_evaluation_readiness(
         ) if not passed
     )
     if plumbing:
-        return EvaluationReadiness(DATA_READY_FOR_EVALUATION, plumbing_blockers=plumbing)
+        return EvaluationReadiness(DATA_BLOCKED, plumbing_blockers=plumbing)
     protocol_blockers = []
     if protocol is None:
         protocol_blockers.append("protocol")
@@ -70,5 +81,5 @@ def assess_evaluation_readiness(
     if not aggregation:
         protocol_blockers.append("aggregation")
     if protocol_blockers:
-        return EvaluationReadiness(DATA_READY_FOR_EVALUATION, tuple(protocol_blockers))
+        return EvaluationReadiness(PROTOCOL_BLOCKED, tuple(protocol_blockers))
     return EvaluationReadiness(READY_FOR_EVALUATION)
