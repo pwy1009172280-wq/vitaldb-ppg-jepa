@@ -71,7 +71,6 @@ def run_layer_probe(
     results_root: str | Path = "results",
     resolved_config: dict[str, Any] | None = None,
     device: str | torch.device = "cpu",
-    aggregation: str = "sample",
     pretraining_subject_ids: tuple[str, ...] = (),
     overwrite_run: bool = False,
 ) -> dict[str, Any]:
@@ -187,7 +186,7 @@ def run_layer_probe(
                 head, feature.values, _labels(feature, task_adapter), normalizer, vocabulary,
                 subject_ids=_subjects(feature),
             )
-            prediction = aggregate_predictions(prediction, aggregation)
+            prediction = aggregate_predictions(prediction, protocol.aggregation_level)
             prediction_path = prediction_dir / f"{representation}__{role}.npz"
             np.savez_compressed(
                 prediction_path,
@@ -204,7 +203,7 @@ def run_layer_probe(
                 "task": protocol.task,
                 "split": role,
                 "metrics": evaluate_predictions(prediction, protocol.metrics),
-                "aggregation": aggregation,
+                "aggregation": protocol.aggregation_level,
                 "num_samples": len(feature.samples),
                 "num_subjects": len(set(_subjects(feature))),
                 "checkpoint_reference": feature.checkpoint_reference,
