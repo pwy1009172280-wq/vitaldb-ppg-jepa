@@ -8,6 +8,14 @@ from .masking import make_target_block_masks
 @dataclass
 class JEPAOutput:
     loss:torch.Tensor; target_mask:torch.Tensor; context_mask:torch.Tensor; prediction:torch.Tensor|None; target:torch.Tensor|None; target_count:int; target_fraction:float; target_mean:torch.Tensor; target_std:torch.Tensor
+
+@dataclass
+class JEPARepresentation:
+    """Full-sequence online-encoder representations for diagnostic use."""
+    final_tokens:torch.Tensor
+    hidden_states:tuple[torch.Tensor, ...]
+    pos_ids:torch.Tensor
+
 class JEPA1D(nn.Module):
     def __init__(self,config:BackboneConfig,patch_size=50,patch_stride=None,num_target_blocks=2,target_block_length=4,predictor_dim=None,predictor_depth=2,predictor_num_heads=4,predictor_mlp_ratio=4.,ema_momentum=.996,loss_beta=1.):
         super().__init__(); stride=patch_stride or patch_size
@@ -25,6 +33,20 @@ class JEPA1D(nn.Module):
     def train(self,mode=True): super().train(mode); self.target_patch.eval(); self.target_encoder.eval(); return self
     def _target_features(self,x):
         with torch.no_grad(): t,p=self.target_patch(x); return self.target_encoder(t,p).tokens
+
+    @torch.no_grad()
+    def encode_full(self,x):
+        """Encode an unmasked waveform with the online patch embed and encoder."""
+        if x.ndim != 3 or x.shape[1] != 1:
+            raise ValueError(f"expected waveform with shape [B, 1, T], got {tuple(x.shape)}")
+        cuda_devices = []
+        if x.is_cuda:
+            cuda_devices = [torch.cuda.current_device() if x.device.index is None else x.device.index]
+        with torch.random.fork_rng(devices=cuda_devices):
+            tokens, pos_ids = self.online_patch(x)
+            features = self.context_encoder(tokens, pos_ids, return_hidden_states=True)
+        return JEPARepresentation(features.tokens, features.hidden_states, features.pos_ids)
+
     def forward(self,x,*,generator=None,return_prediction=True,return_target=True):
         t,p=self.online_patch(x); b,n,d=t.shape; masks=make_target_block_masks(b,n,self.num_target_blocks,self.target_block_length,generator=generator,device=x.device); c,cp=select_tokens(t,p,masks.context_mask); c=self.context_encoder(c,cp).tokens; projected_context=self.context_projection(c); full=self.target_query.to(dtype=projected_context.dtype).expand(b,n,-1).clone(); full[masks.context_mask]=projected_context.reshape(-1,projected_context.shape[-1]); pred=self.predictor(full,p).tokens; pred,_=select_tokens(pred,p,masks.target_mask); target=self._target_features(x); target,_=select_tokens(target,p,masks.target_mask); out=self.predictor_projection(pred); values=out-target; loss=F.smooth_l1_loss(values,torch.zeros_like(values),beta=self.loss_beta,reduction='mean'); return JEPAOutput(loss,masks.target_mask,masks.context_mask,out if return_prediction else None,target if return_target else None,int(masks.target_mask.sum(1)[0]),float(masks.target_mask.float().mean()),target.mean().detach(),target.std(unbiased=False).detach())
     @torch.no_grad()

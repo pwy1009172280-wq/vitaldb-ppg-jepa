@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""LEGACY formal compatibility path; use scripts/train_unified.py for new experiments."""
 import argparse,datetime,signal,sys,time
 from pathlib import Path
 import torch,yaml

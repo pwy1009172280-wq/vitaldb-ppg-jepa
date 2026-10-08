@@ -1,8 +1,5 @@
-# Formal configuration handoff
+# Formal v1 configurations
 
-The repository ships only short smoke configurations under `configs/smoke/`.
-Before long cluster pretraining, an independently reviewed formal YAML must be
-created and selected with `--config`; no scientific budget is assumed here.
-Freeze batch size, epochs/max_updates, learning rate, weight decay, warmup,
-minimum LR ratio, AMP, seeds, checkpoint/log intervals, and method-specific
-hyperparameters before submission.
+`mae.yaml`, `data2vec.yaml`, and `jepa.yaml` are the frozen Formal v1, directly runnable pretraining configurations. The methods use the same shared encoder and training protocol where applicable; each YAML encodes its method-specific masking, EMA, predictor, and loss settings.
+
+The Slurm templates override cluster-specific manifest and processed-data paths, so no Python source editing is required.

@@ -8,5 +8,6 @@
 #SBATCH --output=<PROJECT_ROOT>/slurm-jepa-%j.out
 #SBATCH --error=<PROJECT_ROOT>/slurm-jepa-%j.err
 set -euo pipefail
-<ENV_ACTIVATION>
-python <PROJECT_ROOT>/scripts/train_ssl.py --config <FORMAL_CONFIG> --manifest <MANIFEST> --processed-root <PROCESSED_ROOT> --run-dir <RUN_ROOT>/jepa
+ENV_ACTIVATION='<ENV_ACTIVATION>'
+eval "$ENV_ACTIVATION"
+python <PROJECT_ROOT>/scripts/train_ssl.py --config <PROJECT_ROOT>/configs/formal/jepa.yaml --manifest <MANIFEST> --processed-root <PROCESSED_ROOT> --run-dir <RUN_ROOT>/jepa

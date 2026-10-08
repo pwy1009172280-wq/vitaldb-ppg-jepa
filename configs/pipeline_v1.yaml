@@ -1,0 +1,16 @@
+dataset:
+  name: null
+  modality: null
+  manifest: null
+  split_strategy: subject_grouped
+preprocessing:
+  target_sampling_rate_hz: null
+  window_seconds: null
+  normalization: none
+model:
+  family: null
+  implementation: null
+experiment:
+  task: null
+  seed: 0
+  output_dir: results/

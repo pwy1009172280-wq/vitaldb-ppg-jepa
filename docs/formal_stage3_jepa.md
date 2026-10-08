@@ -4,6 +4,8 @@ This is a documented 1-D PPG JEPA adaptation, not an exact I-JEPA reproduction. 
 
 The predictor restores a full sequence from projected context latents and learned target-query tokens at the original absolute target positions. It never inserts raw target patch embeddings. Predictor positional encoding is applied once. Smooth L1 latent loss is computed only at target positions. The initial baseline requires `patch_stride == patch_size` to avoid support overlap. EMA is explicit after a future successful optimizer step. Formal masking uses an explicit CPU `torch.Generator`; masks are placed on the model device and its state will be checkpointed by the future runner.
 
+`JEPA1D.encode_full(...)` provides full unmasked representation extraction through the online patch embed and context encoder. It returns final post-norm tokens, every block's existing pre-final-norm hidden state, and complete token position ids for later frozen-encoder diagnostics. It does not invoke masking, the predictor, the EMA target branch, or the JEPA loss; this is diagnostic infrastructure only and does not change training semantics.
+
 All scientific values are configurable in `configs/smoke/jepa.yaml`. The module is intended for later `train_ssl.py` and Slurm integration and contains no machine-specific paths or device assumptions. Benchmark timing prototypes are unrelated to the formal implementation.
 
 ## Stage 3 freeze checklist

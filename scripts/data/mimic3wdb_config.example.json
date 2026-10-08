@@ -1,0 +1,8 @@
+{
+  "signal_names": ["PLETH"],
+  "resample_hz": null,
+  "window_seconds": null,
+  "normalization": "none",
+  "filter_name": "none",
+  "delete_raw_requires_sha256": true
+}

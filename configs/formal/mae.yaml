@@ -1,0 +1,5 @@
+method: mae
+model: {patch_size: 50, patch_stride: 50, embed_dim: 128, depth: 4, num_heads: 4, mlp_ratio: 4.0, dropout: 0.0, decoder_dim: 64, decoder_depth: 2, decoder_num_heads: 4, decoder_mlp_ratio: 4.0}
+data: {manifest: data/processed/manifest.csv, processed_root: data/processed, input_length: 5000, expected_preprocessing_version: ppg_preprocessing_v0}
+train: {batch_size: 256, epochs: 100, max_updates: null, learning_rate: 0.0001, weight_decay: 0.05, warmup_updates: 100000, min_lr_ratio: 0.01, seed: 0, amp: true, num_workers: 8, pin_memory: true, drop_last: true, grad_accum_steps: 1, grad_clip_norm: null, checkpoint_interval_updates: 10000, log_interval_updates: 100, run_dir: runs/mae, device: auto, allow_incomplete: false}
+mae: {mask_ratio: 0.75}

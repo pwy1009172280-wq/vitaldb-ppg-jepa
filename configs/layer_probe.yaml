@@ -1,0 +1,23 @@
+experiment:
+  name: frozen_depth_probe
+  type: layer_probe
+  seed: 0
+
+encoder:
+  checkpoint: results/pretrained_encoder/checkpoints/last.pt
+  layers: [layer_1, layer_2, final_layer]
+
+downstream:
+  task: classification
+  target: label
+  metric: macro_f1
+
+probe:
+  epochs: 10
+  batch_size: 32
+  standardize: true
+  optimizer:
+    name: sgd
+    kwargs:
+      lr: 0.01
+  checkpoint_selection: last

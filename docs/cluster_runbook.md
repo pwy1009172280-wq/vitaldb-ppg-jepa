@@ -1,11 +1,21 @@
-# Cluster runbook
+# Bo cluster runbook
 
-The single-GPU engineering runner is ready. Smoke configs under `configs/smoke/` are intentionally short installation and resume checks; they are not formal scientific experiments. Before long pretraining, create an explicitly reviewed formal YAML and freeze batch size, budget, learning rate, scheduler, AMP, seeds, intervals, and method-specific values. The Slurm templates require that path as `<FORMAL_CONFIG>` and never default to smoke.
+1. Unpack the project package.
+2. Create and activate the environment from `envs/formal-ssl-requirements.txt` (or the cluster-approved equivalent).
+3. Prepare or locate the processed PPG cache and manifest. Raw CSVs stay outside Git.
+4. Fill the cluster placeholders in all three `slurm/*.sbatch` files.
+5. Submit the jobs:
 
-Create the formal environment from `envs/formal-ssl-requirements.txt`. Keep raw VitalDB CSVs outside Git under a flat raw root; run `scripts/prepare_vitaldb_ppg.py` and verify the preparation manifest has no failed rows. Smoke locally with `python scripts/train_ssl.py --config configs/smoke/mae.yaml --manifest <MANIFEST> --processed-root <PROCESSED_ROOT> --run-dir <RUN_ROOT>/mae` (and substitute `data2vec` or `jepa`).
+```bash
+sbatch slurm/train_mae.sbatch
+sbatch slurm/train_data2vec.sbatch
+sbatch slurm/train_jepa.sbatch
+```
 
-Before submission replace `<ACCOUNT>`, `<PARTITION>`, `<GPU_REQUEST>`, `<CPUS>`, `<MEMORY>`, `<WALLTIME>`, `<PROJECT_ROOT>`, `<ENV_ACTIVATION>`, `<FORMAL_CONFIG>`, `<PROCESSED_ROOT>`, `<MANIFEST>`, and `<RUN_ROOT>` in Slurm templates. Output/error files are directly below `<PROJECT_ROOT>`. Submit with `sbatch slurm/train_mae.sbatch`, `train_data2vec.sbatch`, or `train_jepa.sbatch`.
+`configs/formal/mae.yaml`, `data2vec.yaml`, and `jepa.yaml` are the directly runnable Formal v1 training configurations: 100 epochs, batch size 256, AMP, AdamW, and warmup/cosine scheduling. The `configs/smoke/` files remain optional short diagnostics only. No Python source editing is required.
 
-Runs write `resolved_config.yaml`, `metrics.jsonl`, `train.log`, and `checkpoints/last.pt`; resume with `--resume <RUN_ROOT>/<METHOD>/checkpoints/last.pt`. Scientific resume configuration must match strictly and checkpoint `format_version` must be supported; operational path, device, worker, and pin-memory changes may be allowed.
+The Slurm templates override manifest and processed-root paths on the command line. Replace only these cluster-specific placeholders: `<ACCOUNT>`, `<PARTITION>`, `<GPU_REQUEST>`, `<CPUS>`, `<MEMORY>`, `<WALLTIME>`, `<PROJECT_ROOT>`, `ENV_ACTIVATION='<ENV_ACTIVATION>'`, `<PROCESSED_ROOT>`, `<MANIFEST>`, and `<RUN_ROOT>`.
 
-Inspect the exact handoff archive before transfer: `python scripts/package_for_cluster.py --root . --list-only`, then `python scripts/package_for_cluster.py --root . --output /tmp/formal.tar.gz`; verify `PACKAGE_MANIFEST.txt`. Packaging is exact-file allowlist based and never uploads or sends anything automatically. A real-GPU unified-runner smoke for all three methods is recommended before long jobs; individual model GPU smokes have already passed on the local RTX 3060.
+Each run writes `resolved_config.yaml`, `metrics.jsonl`, `train.log`, and `checkpoints/last.pt`. Resume with `python scripts/train_ssl.py --config configs/formal/<method>.yaml --resume <RUN_ROOT>/<method>/checkpoints/last.pt` plus the current data-path overrides. Scientific resume configuration must match the checkpoint; checkpoint format version must be supported.
+
+Inspect the package before transfer with `python scripts/package_for_cluster.py --root . --list-only`; the archive embeds the same `PACKAGE_MANIFEST.txt`. Packaging never uploads or sends files automatically. Perform a real GPU unified-runner smoke before long jobs; individual model CUDA checks have already passed on the RTX 3060.

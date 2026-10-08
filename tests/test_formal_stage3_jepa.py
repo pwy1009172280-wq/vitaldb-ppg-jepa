@@ -25,6 +25,28 @@ def test_core_dataflow_hooks():
     x=torch.randn(1,1,50); patch,_=m.online_patch(x); o=m(x,generator=torch.Generator().manual_seed(5)); [h.remove() for h in hs]
     ct,cp=seen['context']; tt,tp=seen['target']; pt,pp=seen['predictor']; assert ct.shape[1]==5-o.target_count and tt.shape[1]==5 and pt.shape[1]==5; assert torch.equal(cp[0],o.context_mask[0].nonzero().flatten()) and torch.equal(tp[0],torch.arange(5)); assert torch.equal(pp[0],torch.arange(5)); assert torch.equal(pt[0,o.target_mask[0]],m.target_query[0].expand(o.target_count,-1)); assert not torch.equal(pt[0,o.target_mask[0]],patch[0,o.target_mask[0]])
 
+def test_encode_full_returns_all_unmasked_online_representations_without_predictor_or_target():
+    m=JEPA1D(BackboneConfig(8,3,2,2),patch_size=10,patch_stride=10,num_target_blocks=2,target_block_length=1,predictor_dim=8,predictor_depth=1,predictor_num_heads=2)
+    m.eval(); x=torch.randn(2,1,50)
+    before_online=[p.detach().clone() for p in list(m.online_patch.parameters())+list(m.context_encoder.parameters())]
+    before_target=[p.detach().clone() for p in list(m.target_patch.parameters())+list(m.target_encoder.parameters())]
+    called={'predictor':False,'target_patch':False,'target_encoder':False}; hooks=[]
+    for name,module in (('predictor',m.predictor),('target_patch',m.target_patch),('target_encoder',m.target_encoder)):
+        hooks.append(module.register_forward_hook(lambda *_args,n=name,**_kwargs: called.__setitem__(n,True)))
+    rng_before=torch.get_rng_state(); out=m.encode_full(x); rng_after=torch.get_rng_state()
+    for hook in hooks: hook.remove()
+    assert out.final_tokens.shape==(2,5,8) and len(out.hidden_states)==3
+    assert all(h.shape==(2,5,8) and torch.isfinite(h).all() for h in out.hidden_states)
+    assert torch.equal(out.pos_ids,torch.arange(5).expand(2,-1)) and not any(called.values())
+    assert torch.equal(rng_before,rng_after)
+    assert all(torch.equal(a,b) for a,b in zip(before_online,list(m.online_patch.parameters())+list(m.context_encoder.parameters())))
+    assert all(torch.equal(a,b) for a,b in zip(before_target,list(m.target_patch.parameters())+list(m.target_encoder.parameters())))
+
+def test_encode_full_uses_complete_sequence_without_masking():
+    m=JEPA1D(BackboneConfig(8,2,2,2),patch_size=10,patch_stride=10,num_target_blocks=2,target_block_length=1,predictor_dim=8,predictor_depth=1,predictor_num_heads=2)
+    out=m.encode_full(torch.randn(1,1,53))
+    assert out.final_tokens.shape[1]==5 and torch.equal(out.pos_ids,torch.arange(5).unsqueeze(0))
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason='CUDA required for AMP regression')
 def test_jepa_cuda_amp_forward_backward():
     m=model().cuda(); x=torch.randn(2,1,50,device='cuda')
