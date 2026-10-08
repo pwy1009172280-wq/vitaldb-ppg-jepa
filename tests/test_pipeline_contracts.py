@@ -66,10 +66,14 @@ def test_subject_disjointness_is_enforced():
 
 def test_config_loader_reads_sections_and_rejects_unknown(tmp_path):
     path = tmp_path / "config.yaml"
-    path.write_text("dataset:\n  name: mimic\nexperiment:\n  seed: 7\n", encoding="utf-8")
+    path.write_text(
+        "dataset:\n  pretrain:\n    name: mimic3wdb-matched\n    modality: PPG\n"
+        "experiment:\n  seed: 7\n",
+        encoding="utf-8",
+    )
     config = load_config(path)
     assert isinstance(config, PipelineConfig)
-    assert config.dataset["name"] == "mimic"
+    assert config.dataset["pretrain"]["name"] == "mimic3wdb-matched"
     assert config.experiment["seed"] == 7
 
     path.write_text("training: {}\n", encoding="utf-8")

@@ -7,9 +7,9 @@ from src.experiments.metadata import save_config
 
 def test_config_save_and_load_round_trip(tmp_path):
     config = PipelineConfig(
-        dataset={"name": "synthetic", "subjects": 4},
-        preprocessing={"pipeline": ["identity"]},
-        experiment={"seed": 13},
+        dataset={"pretrain": {"name": "test-fixture-ppg", "modality": "PPG"}},
+        preprocessing={"pretrain": {"transforms": []}},
+        experiment={"seed": 13, "smoke_only": True},
     )
     path = tmp_path / "config.yaml"
     save_config(config, path)
@@ -54,4 +54,3 @@ def test_experiment_registry_is_explicit_and_duplicate_safe():
         assert "already" in str(error)
     else:
         raise AssertionError("duplicate experiment registration should fail")
-
