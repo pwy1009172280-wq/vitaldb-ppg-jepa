@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from src.experiments.pipeline import build_model_from_config, load_checkpoint_model
+from src.models.jepa import JEPATrainingAdapter
 from src.training import CheckpointManager, CheckpointSelectionPolicy
 
 TINY_MODEL = {
@@ -18,25 +19,26 @@ TINY_MODEL = {
 
 
 def _save(tmp_path, *, resolved=None):
-    model = build_model_from_config(TINY_MODEL)
+    raw = build_model_from_config(TINY_MODEL)
+    adapter = JEPATrainingAdapter(raw)
     manager = CheckpointManager(tmp_path, CheckpointSelectionPolicy("last"))
     manager.save(
-        "last", model, torch.optim.SGD(model.parameters(), lr=1e-3), None, None,
+        "last", adapter, torch.optim.SGD(adapter.parameters(), lr=1e-3), None, None,
         epoch=0, global_step=2, best_metric_name=None, best_metric_value=None,
         experiment_manifest_reference="manifest://x",
         evaluation_protocol_reference="protocol://x",
         resolved_config=resolved or {"model": TINY_MODEL},
         epoch_complete=True,
     )
-    return model, str(tmp_path / "last.pt")
+    return raw, str(tmp_path / "last.pt")
 
 
 def test_checkpoint_reconstruction_and_epoch_complete(tmp_path):
-    model, path = _save(tmp_path)
+    raw, path = _save(tmp_path)
     rebuilt, payload = load_checkpoint_model(path)
     assert payload["epoch_complete"] is True
     assert payload["global_step"] == 2
-    for (_, p1), (_, p2) in zip(model.state_dict().items(), rebuilt.state_dict().items()):
+    for (_, p1), (_, p2) in zip(raw.state_dict().items(), rebuilt.jepa.state_dict().items()):
         assert torch.equal(p1, p2)
 
 
