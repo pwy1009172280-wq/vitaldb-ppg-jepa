@@ -76,3 +76,36 @@ def test_trainer_config_validates_budget():
         TrainerConfig(max_updates=0)
     with pytest.raises(ValueError, match="max_batches"):
         TrainerConfig(max_batches=-1)
+
+
+def test_adamw_parameter_groups_rule():
+    import torch.nn as nn
+
+    from src.training.optim import adamw_parameter_groups
+
+    model = nn.Sequential(nn.Linear(4, 4), nn.LayerNorm(4))
+    groups = adamw_parameter_groups(model, 0.05)
+    assert len(groups) == 2
+    decay = {id(p) for p in groups[0]["params"]}
+    no_decay = {id(p) for p in groups[1]["params"]}
+    for name, param in model.named_parameters():
+        if name.endswith("bias") or param.ndim <= 1:
+            assert id(param) in no_decay, name
+        else:
+            assert id(param) in decay, name
+    assert groups[0]["weight_decay"] == 0.05
+    assert groups[1]["weight_decay"] == 0.0
+
+
+def test_optimizer_factory_accepts_explicit_groups():
+    import torch.nn as nn
+
+    from src.training import OptimizerFactory
+    from src.training.optim import adamw_parameter_groups
+
+    model = nn.Linear(4, 2)
+    groups = adamw_parameter_groups(model, 0.05)
+    factory = OptimizerFactory()
+    factory.register("adamw", torch.optim.AdamW)
+    optimizer = factory.create("adamw", groups, lr=1e-3)
+    assert len(optimizer.param_groups) == 2
