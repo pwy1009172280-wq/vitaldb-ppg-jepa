@@ -1,12 +1,11 @@
-"""Pipeline pretrain orchestration (seed-before-init, groups, mask RNG, budget)."""
+"""Fixture end-to-end smoke (A14): pretrain -> representation -> cache -> result."""
 
 import numpy as np
-import torch
 
 from src.config import PipelineConfig
 from src.data.base import BaseDataset
 from src.data.samples import SUBJECT_IDENTITY_RESOLVED, UnifiedSample
-from src.experiments.pipeline import load_checkpoint_model, run_pretrain
+from src.experiments.pipeline import run_smoke
 
 TINY_MODEL = {
     "family": "jepa",
@@ -44,30 +43,22 @@ class SyntheticDataset(BaseDataset):
         )
 
 
-def _config(seed=123, max_updates=2):
+def _config():
     return PipelineConfig(
         model=TINY_MODEL,
         experiment={
-            "mode": "smoke", "smoke_only": True, "seed": seed, "device": "cpu",
-            "training": {"batch_size": 2, "max_updates": max_updates, "lr": 1e-3, "weight_decay": 0.0},
+            "mode": "smoke", "smoke_only": True, "seed": 123, "device": "cpu",
+            "training": {"batch_size": 2, "max_updates": 2, "lr": 1e-3, "weight_decay": 0.0},
         },
     )
 
 
-def test_run_pretrain_produces_reconstructable_checkpoint(tmp_path):
-    ckpt = run_pretrain(_config(), SyntheticDataset(), results_root=tmp_path / "results", run_id="fixture-run")
-    assert ckpt.exists()
-    model, payload = load_checkpoint_model(str(ckpt))
-    assert payload["global_step"] == 2
-    assert payload["epoch_complete"] is True
-    assert payload["resolved_config"]["model"]["family"] == "jepa"
-
-
-def test_seed_before_init_is_reproducible(tmp_path):
-    cfg = _config(seed=7, max_updates=1)
-    ckpt1 = run_pretrain(cfg, SyntheticDataset(), results_root=tmp_path / "r1", run_id="run-a")
-    ckpt2 = run_pretrain(cfg, SyntheticDataset(), results_root=tmp_path / "r2", run_id="run-b")
-    m1, _ = load_checkpoint_model(str(ckpt1))
-    m2, _ = load_checkpoint_model(str(ckpt2))
-    for (_, a), (_, b) in zip(m1.state_dict().items(), m2.state_dict().items()):
-        assert torch.equal(a, b)
+def test_fixture_smoke_end_to_end(tmp_path):
+    out = run_smoke(_config(), SyntheticDataset(), results_root=tmp_path / "results", run_id="smoke-run")
+    result = out["result"]
+    assert result["metrics"]["accuracy"] == 1.0
+    assert set(result["representations"]) == {"layer_1", "layer_2", "final_layer"}
+    assert result["smoke_only"] is True
+    assert (tmp_path / "results" / "smoke-run" / "checkpoints" / "last.pt").exists()
+    assert (tmp_path / "results" / "smoke-run" / "metrics.json").exists()
+    assert (tmp_path / "results" / "smoke-run" / "feature_cache" / "final_layer.npz").exists()

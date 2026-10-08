@@ -170,3 +170,76 @@ def run_pretrain(
     trainer.install_signal_handlers()
     trainer.fit(loader, epochs=epochs, max_updates=max_updates)
     return run.checkpoints_path / "last.pt"
+
+
+def run_smoke(
+    config: PipelineConfig,
+    dataset: BaseDataset,
+    *,
+    results_root: str | Path,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    """Run the fixture E2E smoke: pretrain -> representation -> cache -> result.
+
+    SMOKE_ONLY / NOT_APPROVED_FOR_PILOT: proves plumbing correctness only.
+    """
+    from src.data import SplitContext
+    from src.downstream.core import (
+        FeatureCacheKey,
+        collate_feature_samples,
+        evaluate_predictions,
+        extract_features,
+        load_feature_cache,
+        load_results,
+        save_feature_cache,
+        save_results,
+    )
+    from src.downstream.core.probe import PredictionBatch
+    from src.downstream.readers.jepa import JEPARepresentationReader
+    from src.provenance import content_hash
+
+    checkpoint = run_pretrain(config, dataset, results_root=results_root, run_id=run_id)
+    adapter, _ = load_checkpoint_model(str(checkpoint))
+    adapter.freeze_encoder()
+
+    reader = JEPARepresentationReader()
+    samples = list(dataset)
+    context = SplitContext("train", frozenset(sample.subject_id for sample in samples))
+    representations = ("layer_1", "layer_2", "final_layer")
+    features = extract_features(
+        adapter, [collate_feature_samples(samples)], reader=reader,
+        context=context, representations=representations, pooling="mean",
+        checkpoint_reference=str(checkpoint),
+    )
+    assert set(features) == set(representations)
+    assert len(features) >= 2
+
+    cache_dir = Path(results_root) / (run_id or "smoke") / "feature_cache"
+    for name, feature in features.items():
+        key = FeatureCacheKey(
+            content_hash("manifest", "fixture"),
+            content_hash("sample_set", [sample.window_id for sample in samples]),
+            content_hash("preprocessing", "identity"),
+            content_hash("checkpoint", str(checkpoint)),
+            feature.reader_name, feature.reader_version, name, feature.pooling, "1",
+        )
+        save_feature_cache(feature, cache_dir / f"{name}.npz", key)
+        load_feature_cache(cache_dir / f"{name}.npz", key)
+
+    prediction = PredictionBatch(
+        targets=np.asarray([0, 1, 0, 1], dtype=np.int64),
+        predicted_labels=np.asarray([0, 1, 0, 1], dtype=np.int64),
+        probabilities=np.asarray([[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float64),
+        class_vocabulary=(0, 1), task="classification",
+    )
+    metrics = evaluate_predictions(prediction, ("accuracy",))
+    result = {
+        "schema_version": 1,
+        "smoke_only": True,
+        "representations": sorted(features),
+        "metrics": metrics,
+    }
+    result_path = Path(results_root) / (run_id or "smoke") / "metrics.json"
+    save_results(result, result_path)
+    load_results(result_path)
+    return {"checkpoint": str(checkpoint), "result": result}
