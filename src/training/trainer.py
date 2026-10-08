@@ -193,6 +193,7 @@ class Trainer:
                     experiment_manifest_reference=self.experiment_manifest_reference,
                     evaluation_protocol_reference=self.protocol_reference,
                     resolved_config=self.resolved_config,
+                    epoch_complete=True,
                 )
                 if validation_loader is not None and self.checkpoint_manager.policy.kind == "monitored_metric":
                     monitor = self.checkpoint_manager.policy.monitor
@@ -214,6 +215,7 @@ class Trainer:
                             experiment_manifest_reference=self.experiment_manifest_reference,
                             evaluation_protocol_reference=self.protocol_reference,
                             resolved_config=self.resolved_config,
+                            epoch_complete=True,
                         )
                         self.checkpoint_manager.save(
                             "last", self.model, self.optimizer, self.scheduler, self.scaler,
@@ -222,6 +224,7 @@ class Trainer:
                             experiment_manifest_reference=self.experiment_manifest_reference,
                             evaluation_protocol_reference=self.protocol_reference,
                             resolved_config=self.resolved_config,
+                            epoch_complete=True,
                         )
             self.epoch = epoch + 1
             if budget is not None and self.global_step >= budget:
