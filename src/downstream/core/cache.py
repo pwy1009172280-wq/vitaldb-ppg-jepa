@@ -3,6 +3,8 @@
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -74,12 +76,20 @@ def save_feature_cache(feature: ExtractedFeature, path: str | Path, key: Feature
     }
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("wb") as handle:
-        np.savez_compressed(
-            handle,
-            features=feature.values,
-            metadata_json=np.asarray(json.dumps(metadata, sort_keys=True, allow_nan=False)),
-        )
+    fd, tmp_name = tempfile.mkstemp(dir=output.parent, prefix=".feature.", suffix=".tmp")
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        with tmp_path.open("wb") as handle:
+            np.savez_compressed(
+                handle,
+                features=feature.values,
+                metadata_json=np.asarray(json.dumps(metadata, sort_keys=True, allow_nan=False)),
+            )
+        os.replace(tmp_path, output)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
     return output
 
 
