@@ -74,6 +74,7 @@ class CheckpointManager:
         evaluation_protocol_reference: str,
         resolved_config: Any,
         epoch_complete: bool = False,
+        next_batch_idx: int = 0,
     ) -> Path:
         payload = {
             "checkpoint_format": "generic_v1",
@@ -84,6 +85,7 @@ class CheckpointManager:
             "rng": _rng_state(),
             "epoch": epoch,
             "epoch_complete": epoch_complete,
+            "next_batch_idx": next_batch_idx,
             "global_step": global_step,
             "best_metric_name": best_metric_name,
             "best_metric_value": best_metric_value,

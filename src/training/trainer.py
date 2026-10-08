@@ -1,5 +1,7 @@
 """Small, model-agnostic training execution loop."""
 
+import signal
+import threading
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -8,6 +10,15 @@ import torch
 from .checkpoint import CheckpointManager
 from .contracts import LossOutput
 from .metrics import MetricsLogger
+
+
+class TrainingInterrupted(Exception):
+    """Raised when a stop signal is observed at a safe optimizer boundary."""
+
+    def __init__(self, epoch: int, next_batch_idx: int) -> None:
+        self.epoch = epoch
+        self.next_batch_idx = next_batch_idx
+        super().__init__(f"training interrupted at epoch {epoch}, next batch {next_batch_idx}")
 
 
 @dataclass(frozen=True)
@@ -63,8 +74,8 @@ class Trainer:
         self.epoch = 0
         self.best_metric_name: str | None = None
         self.best_metric_value: float | None = None
-        # Device ownership: AMP/autocast follow the model's actual device, not
-        # merely whether the machine has CUDA.
+        self._stop_event = threading.Event()
+        self._next_batch_idx = 0
         device = self._model_device()
         enabled = self.config.amp and device.type == "cuda"
         try:
@@ -77,6 +88,18 @@ class Trainer:
             return next(self.model.parameters()).device
         except StopIteration:
             return torch.device("cpu")
+
+    def install_signal_handlers(self) -> None:
+        """Install SIGINT/SIGTERM handlers that only set the stop flag."""
+
+        def handler(signum, frame):
+            self._stop_event.set()
+
+        signal.signal(signal.SIGINT, handler)
+        signal.signal(signal.SIGTERM, handler)
+
+    def request_stop(self) -> None:
+        self._stop_event.set()
 
     def _autocast(self):
         device_type = self._model_device().type
@@ -101,6 +124,18 @@ class Trainer:
                 self.scheduler.step()
         return did_update
 
+    def _save_checkpoint(self, name: str, *, epoch: int, global_step: int, best_metric_name, best_metric_value, epoch_complete: bool, next_batch_idx: int) -> None:
+        self.checkpoint_manager.save(
+            name, self.model, self.optimizer, self.scheduler, self.scaler,
+            epoch=epoch, global_step=global_step,
+            best_metric_name=best_metric_name, best_metric_value=best_metric_value,
+            experiment_manifest_reference=self.experiment_manifest_reference,
+            evaluation_protocol_reference=self.protocol_reference,
+            resolved_config=self.resolved_config,
+            epoch_complete=epoch_complete,
+            next_batch_idx=next_batch_idx,
+        )
+
     def _run_phase(
         self,
         loader: Iterable[Any],
@@ -108,6 +143,7 @@ class Trainer:
         training: bool,
         budget: int | None = None,
         attempts_cap: int | None = None,
+        start_batch_idx: int = 0,
     ) -> dict[str, float]:
         if training:
             self.model.train()
@@ -121,6 +157,8 @@ class Trainer:
         context = torch.enable_grad() if training else torch.no_grad()
         with context:
             for batch_index, batch in enumerate(loader):
+                if batch_index < start_batch_idx:
+                    continue
                 with self._autocast() if training else torch.no_grad():
                     output = self.model.forward(batch)
                     loss_output = self.model.compute_loss(output, batch)
@@ -143,6 +181,8 @@ class Trainer:
                         self._step_optimizer(pending)
                         self.optimizer.zero_grad(set_to_none=True)
                         pending = 0
+                        if self._stop_event.is_set():
+                            raise TrainingInterrupted(epoch, batch_index + 1)
                 if budget is not None and self.global_step >= budget:
                     break
                 if attempts_cap is not None and batches >= attempts_cap:
@@ -164,71 +204,79 @@ class Trainer:
         epochs: int = 1,
         max_updates: int | None = None,
         max_batches: int | None = None,
+        stop_event: threading.Event | None = None,
     ) -> list[dict[str, float]]:
         if self.checkpoint_manager is not None and self.checkpoint_manager.policy.kind == "monitored_metric" and validation_loader is None:
             raise ValueError("monitored_metric checkpoint selection requires validation_loader")
+        if stop_event is not None:
+            self._stop_event = stop_event
         budget = max_updates if max_updates is not None else self.config.max_updates
         attempts_cap = max_batches if max_batches is not None else self.config.max_batches
         history: list[dict[str, float]] = []
-        for epoch in range(self.epoch, self.epoch + epochs):
-            self.epoch = epoch
-            steps_before_epoch = self.global_step
-            train_metrics = self._run_phase(train_loader, epoch, True, budget=budget, attempts_cap=attempts_cap)
-            record = {f"train/{name}": value for name, value in train_metrics.items()}
-            if validation_loader is not None:
-                validation_metrics = self._run_phase(validation_loader, epoch, False)
-                record.update({f"validation/{name}": value for name, value in validation_metrics.items()})
-            history.append(record)
-            if (
-                self.scheduler is not None
-                and self.config.scheduler_step_policy == "epoch"
-                and self.global_step > steps_before_epoch
-            ):
-                self.scheduler.step()
-            if self.checkpoint_manager is not None:
-                self.checkpoint_manager.save(
-                    "last", self.model, self.optimizer, self.scheduler, self.scaler,
-                    epoch=epoch, global_step=self.global_step,
-                    best_metric_name=self.best_metric_name, best_metric_value=self.best_metric_value,
-                    experiment_manifest_reference=self.experiment_manifest_reference,
-                    evaluation_protocol_reference=self.protocol_reference,
-                    resolved_config=self.resolved_config,
-                    epoch_complete=True,
+        try:
+            for epoch in range(self.epoch, self.epoch + epochs):
+                self.epoch = epoch
+                steps_before_epoch = self.global_step
+                train_metrics = self._run_phase(
+                    train_loader, epoch, True, budget=budget, attempts_cap=attempts_cap,
+                    start_batch_idx=self._next_batch_idx,
                 )
-                if validation_loader is not None and self.checkpoint_manager.policy.kind == "monitored_metric":
-                    monitor = self.checkpoint_manager.policy.monitor
-                    candidate = validation_metrics.get(monitor) if monitor else None
-                    if candidate is None:
-                        raise ValueError(f"monitored metric {monitor!r} was not produced by validation")
-                    better = self.best_metric_value is None or (
-                        candidate < self.best_metric_value
-                        if self.checkpoint_manager.policy.mode == "min"
-                        else candidate > self.best_metric_value
+                self._next_batch_idx = 0
+                record = {f"train/{name}": value for name, value in train_metrics.items()}
+                if validation_loader is not None:
+                    validation_metrics = self._run_phase(validation_loader, epoch, False)
+                    record.update({f"validation/{name}": value for name, value in validation_metrics.items()})
+                history.append(record)
+                if (
+                    self.scheduler is not None
+                    and self.config.scheduler_step_policy == "epoch"
+                    and self.global_step > steps_before_epoch
+                ):
+                    self.scheduler.step()
+                if self.checkpoint_manager is not None:
+                    self._save_checkpoint(
+                        "last", epoch=epoch, global_step=self.global_step,
+                        best_metric_name=self.best_metric_name, best_metric_value=self.best_metric_value,
+                        epoch_complete=True, next_batch_idx=0,
                     )
-                    if better:
-                        self.best_metric_name = monitor
-                        self.best_metric_value = candidate
-                        self.checkpoint_manager.save_best(
-                            self.model, self.optimizer, self.scheduler, self.scaler,
-                            epoch=epoch, global_step=self.global_step,
-                            best_metric_name=self.best_metric_name, best_metric_value=self.best_metric_value,
-                            experiment_manifest_reference=self.experiment_manifest_reference,
-                            evaluation_protocol_reference=self.protocol_reference,
-                            resolved_config=self.resolved_config,
-                            epoch_complete=True,
+                    if validation_loader is not None and self.checkpoint_manager.policy.kind == "monitored_metric":
+                        monitor = self.checkpoint_manager.policy.monitor
+                        candidate = validation_metrics.get(monitor) if monitor else None
+                        if candidate is None:
+                            raise ValueError(f"monitored metric {monitor!r} was not produced by validation")
+                        better = self.best_metric_value is None or (
+                            candidate < self.best_metric_value
+                            if self.checkpoint_manager.policy.mode == "min"
+                            else candidate > self.best_metric_value
                         )
-                        self.checkpoint_manager.save(
-                            "last", self.model, self.optimizer, self.scheduler, self.scaler,
-                            epoch=epoch, global_step=self.global_step,
-                            best_metric_name=self.best_metric_name, best_metric_value=self.best_metric_value,
-                            experiment_manifest_reference=self.experiment_manifest_reference,
-                            evaluation_protocol_reference=self.protocol_reference,
-                            resolved_config=self.resolved_config,
-                            epoch_complete=True,
-                        )
-            self.epoch = epoch + 1
-            if budget is not None and self.global_step >= budget:
-                break
+                        if better:
+                            self.best_metric_name = monitor
+                            self.best_metric_value = candidate
+                            self.checkpoint_manager.save_best(
+                                self.model, self.optimizer, self.scheduler, self.scaler,
+                                epoch=epoch, global_step=self.global_step,
+                                best_metric_name=self.best_metric_name, best_metric_value=self.best_metric_value,
+                                experiment_manifest_reference=self.experiment_manifest_reference,
+                                evaluation_protocol_reference=self.protocol_reference,
+                                resolved_config=self.resolved_config,
+                                epoch_complete=True, next_batch_idx=0,
+                            )
+                            self._save_checkpoint(
+                                "last", epoch=epoch, global_step=self.global_step,
+                                best_metric_name=self.best_metric_name, best_metric_value=self.best_metric_value,
+                                epoch_complete=True, next_batch_idx=0,
+                            )
+                self.epoch = epoch + 1
+                if budget is not None and self.global_step >= budget:
+                    break
+        except TrainingInterrupted as interrupted:
+            if self.checkpoint_manager is not None:
+                self._save_checkpoint(
+                    "last", epoch=interrupted.epoch, global_step=self.global_step,
+                    best_metric_name=self.best_metric_name, best_metric_value=self.best_metric_value,
+                    epoch_complete=False, next_batch_idx=interrupted.next_batch_idx,
+                )
+            raise
         return history
 
     def resume(self, selection: str = "last") -> dict[str, Any]:
@@ -240,8 +288,13 @@ class Trainer:
             expected_experiment_manifest_reference=self.experiment_manifest_reference,
             expected_evaluation_protocol_reference=self.protocol_reference,
         )
-        self.epoch = int(payload["epoch"]) + 1
+        self.epoch = int(payload["epoch"])
         self.global_step = int(payload["global_step"])
         self.best_metric_name = payload["best_metric_name"]
         self.best_metric_value = payload["best_metric_value"]
+        if payload.get("epoch_complete", True):
+            self.epoch += 1
+            self._next_batch_idx = 0
+        else:
+            self._next_batch_idx = int(payload.get("next_batch_idx", 0))
         return payload
