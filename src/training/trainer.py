@@ -16,6 +16,8 @@ class TrainerConfig:
     grad_accum_steps: int = 1
     grad_clip_norm: float | None = None
     scheduler_step_policy: str = "epoch"
+    max_updates: int | None = None
+    max_batches: int | None = None
 
     def __post_init__(self) -> None:
         if self.grad_accum_steps <= 0:
@@ -24,6 +26,10 @@ class TrainerConfig:
             raise ValueError("grad_clip_norm must be positive")
         if self.scheduler_step_policy not in ("step", "epoch", "none"):
             raise ValueError("scheduler_step_policy must be step, epoch, or none")
+        if self.max_updates is not None and self.max_updates <= 0:
+            raise ValueError("max_updates must be positive")
+        if self.max_batches is not None and self.max_batches <= 0:
+            raise ValueError("max_batches must be positive")
 
 
 class Trainer:
@@ -57,14 +63,23 @@ class Trainer:
         self.epoch = 0
         self.best_metric_name: str | None = None
         self.best_metric_value: float | None = None
-        enabled = self.config.amp and torch.cuda.is_available()
+        # Device ownership: AMP/autocast follow the model's actual device, not
+        # merely whether the machine has CUDA.
+        device = self._model_device()
+        enabled = self.config.amp and device.type == "cuda"
         try:
             self.scaler = torch.amp.GradScaler("cuda", enabled=enabled)
         except AttributeError:
             self.scaler = torch.cuda.amp.GradScaler(enabled=enabled)
 
+    def _model_device(self) -> torch.device:
+        try:
+            return next(self.model.parameters()).device
+        except StopIteration:
+            return torch.device("cpu")
+
     def _autocast(self):
-        device_type = "cuda" if torch.cuda.is_available() else "cpu"
+        device_type = self._model_device().type
         dtype = torch.float16 if device_type == "cuda" else torch.bfloat16
         return torch.autocast(device_type=device_type, dtype=dtype, enabled=self.scaler.is_enabled())
 
@@ -86,7 +101,14 @@ class Trainer:
                 self.scheduler.step()
         return did_update
 
-    def _run_phase(self, loader: Iterable[Any], epoch: int, training: bool) -> dict[str, float]:
+    def _run_phase(
+        self,
+        loader: Iterable[Any],
+        epoch: int,
+        training: bool,
+        budget: int | None = None,
+        attempts_cap: int | None = None,
+    ) -> dict[str, float]:
         if training:
             self.model.train()
         else:
@@ -106,6 +128,10 @@ class Trainer:
                         raise TypeError("compute_loss must return LossOutput")
                     terms = loss_output.detached_terms()
                     loss = loss_output.total_loss
+                if not torch.isfinite(loss):
+                    raise FloatingPointError(
+                        f"non-finite loss at epoch {epoch} batch {batch_index}"
+                    )
                 for name, value in terms.items():
                     sums[name] = sums.get(name, 0.0) + value
                 batches += 1
@@ -117,21 +143,37 @@ class Trainer:
                         self._step_optimizer(pending)
                         self.optimizer.zero_grad(set_to_none=True)
                         pending = 0
+                if budget is not None and self.global_step >= budget:
+                    break
+                if attempts_cap is not None and batches >= attempts_cap:
+                    break
             if training and pending:
                 self._step_optimizer(pending)
                 self.optimizer.zero_grad(set_to_none=True)
+        if batches == 0:
+            raise ValueError(f"empty {('train' if training else 'validation')} loader at epoch {epoch}")
         averages = {name: value / max(1, batches) for name, value in sums.items()}
         self.metrics_logger.log("train" if training else "validation", epoch, self.global_step, averages, batches)
         return averages
 
-    def fit(self, train_loader: Iterable[Any], *, validation_loader: Iterable[Any] | None = None, epochs: int = 1) -> list[dict[str, float]]:
+    def fit(
+        self,
+        train_loader: Iterable[Any],
+        *,
+        validation_loader: Iterable[Any] | None = None,
+        epochs: int = 1,
+        max_updates: int | None = None,
+        max_batches: int | None = None,
+    ) -> list[dict[str, float]]:
         if self.checkpoint_manager is not None and self.checkpoint_manager.policy.kind == "monitored_metric" and validation_loader is None:
             raise ValueError("monitored_metric checkpoint selection requires validation_loader")
+        budget = max_updates if max_updates is not None else self.config.max_updates
+        attempts_cap = max_batches if max_batches is not None else self.config.max_batches
         history: list[dict[str, float]] = []
         for epoch in range(self.epoch, self.epoch + epochs):
             self.epoch = epoch
             steps_before_epoch = self.global_step
-            train_metrics = self._run_phase(train_loader, epoch, True)
+            train_metrics = self._run_phase(train_loader, epoch, True, budget=budget, attempts_cap=attempts_cap)
             record = {f"train/{name}": value for name, value in train_metrics.items()}
             if validation_loader is not None:
                 validation_metrics = self._run_phase(validation_loader, epoch, False)
@@ -182,6 +224,8 @@ class Trainer:
                             resolved_config=self.resolved_config,
                         )
             self.epoch = epoch + 1
+            if budget is not None and self.global_step >= budget:
+                break
         return history
 
     def resume(self, selection: str = "last") -> dict[str, Any]:
