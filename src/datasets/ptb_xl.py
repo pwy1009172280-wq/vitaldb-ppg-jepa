@@ -11,7 +11,11 @@ import re
 from pathlib import Path
 from src.data.base import BaseDataset
 from src.data.index import RecordIndexRow, read_jsonl, write_hash, write_jsonl
-from src.data.samples import UnifiedSample
+from src.data.samples import (
+    SUBJECT_IDENTITY_RESOLVED,
+    SUBJECT_IDENTITY_UNRESOLVED,
+    UnifiedSample,
+)
 
 
 DATASET = "ptb-xl"
@@ -91,7 +95,8 @@ def build_index(root: str | Path, output: str | Path | None = None) -> Path:
     rows: list[RecordIndexRow] = []
     with metadata_path.open(newline="", encoding="utf-8") as handle:
         for record in csv.DictReader(handle):
-            subject = _stable_patient_id(record["patient_id"])
+            patient_id = record["patient_id"].strip()
+            subject = _stable_patient_id(patient_id)
             record_id = record["ecg_id"].strip()
             for variant, field in (("lr_100hz", "filename_lr"), ("hr_500hz", "filename_hr")):
                 rel_base = record[field].strip()
@@ -120,6 +125,10 @@ def build_index(root: str | Path, output: str | Path | None = None) -> Path:
                         role_reference=ROLE_REFERENCE,
                         qc_status="PASS",
                         qc_reason=None,
+                        subject_identity_status=SUBJECT_IDENTITY_RESOLVED,
+                        subject_identity_namespace=DATASET,
+                        subject_identity_kind="official_patient_id",
+                        subject_source_identity=patient_id,
                     )
                 )
     write_jsonl(rows, output)
@@ -143,7 +152,10 @@ class PTBXLReader(BaseDataset):
         return len(self.rows)
 
     def subject_ids(self) -> frozenset[str]:
-        return frozenset(row.subject_id for row in self.rows)
+        return frozenset(
+            row.subject_id for row in self.rows
+            if row.subject_identity_status == SUBJECT_IDENTITY_RESOLVED and row.subject_id
+        )
 
     def __getitem__(self, index: int) -> UnifiedSample:
         row = self.rows[index]
@@ -163,9 +175,17 @@ class PTBXLReader(BaseDataset):
             fs = float(record.fs)
             names = tuple(str(x) for x in (record.sig_name or row.channel_name))
             units = tuple(str(x) if x else "UNKNOWN" for x in (getattr(record, "units", None) or row.unit))
+        if row.subject_identity_status == SUBJECT_IDENTITY_RESOLVED and row.subject_id:
+            subject_id = row.subject_id
+            status = SUBJECT_IDENTITY_RESOLVED
+            src_id = row.subject_source_identity
+        else:
+            subject_id = None
+            status = SUBJECT_IDENTITY_UNRESOLVED
+            src_id = row.subject_id or row.subject_source_identity
         return UnifiedSample(
             signal=signal,
-            subject_id=row.subject_id,
+            subject_id=subject_id,
             recording_id=row.record_id,
             dataset=DATASET,
             modality="ECG",
@@ -183,4 +203,8 @@ class PTBXLReader(BaseDataset):
                 "reader_version": "1.0",
             },
             metadata={"continuity": row.continuity, "role_reference": row.role_reference},
+            subject_identity_status=status,
+            subject_identity_namespace=row.subject_identity_namespace,
+            subject_identity_kind=row.subject_identity_kind,
+            subject_source_identity=src_id,
         )

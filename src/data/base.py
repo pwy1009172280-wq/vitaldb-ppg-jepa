@@ -10,6 +10,10 @@ class SubjectLeakageError(ValueError):
     """Raised when a subject appears in more than one evaluation split."""
 
 
+class SubjectIdentityError(ValueError):
+    """Raised when a subject-aware operation encounters an unresolved subject."""
+
+
 class BaseDataset(ABC, Sequence[UnifiedSample]):
     """Minimal interface implemented by MIMIC, VitalDB, ECG, and IMU adapters.
 
@@ -31,8 +35,19 @@ class BaseDataset(ABC, Sequence[UnifiedSample]):
         """Return one canonical sample."""
 
     def subject_ids(self) -> frozenset[str]:
-        """Return all subjects represented by this dataset instance."""
-        return frozenset(self[index].subject_id for index in range(len(self)))
+        """Return all resolved subjects represented by this dataset instance.
+
+        Fails closed if any sample carries an unresolved (``None``) subject.
+        """
+        subjects = frozenset(
+            sample.subject_id for sample in (self[index] for index in range(len(self)))
+        )
+        if None in subjects:
+            raise SubjectIdentityError(
+                f"dataset {self.name!r} contains unresolved subjects; "
+                "cannot form a subject set"
+            )
+        return subjects
 
 
 def assert_subject_disjoint(*splits: Iterable[UnifiedSample]) -> None:
@@ -40,6 +55,10 @@ def assert_subject_disjoint(*splits: Iterable[UnifiedSample]) -> None:
     seen: dict[str, int] = {}
     for split_index, samples in enumerate(splits):
         for sample in samples:
+            if sample.subject_id is None:
+                raise SubjectIdentityError(
+                    "subject-aware splits require RESOLVED subjects"
+                )
             previous = seen.get(sample.subject_id)
             if previous is not None and previous != split_index:
                 raise SubjectLeakageError(
@@ -54,6 +73,10 @@ def assert_subject_sets_disjoint(*subject_sets: Iterable[str]) -> None:
     seen: set[str] = set()
     for split_index, subject_set in enumerate(subject_sets):
         current = set(subject_set)
+        if None in current or any(not isinstance(subject, str) for subject in current):
+            raise SubjectIdentityError(
+                "subject sets must contain only non-empty RESOLVED subject strings"
+            )
         overlap = seen.intersection(current)
         if overlap:
             raise SubjectLeakageError(

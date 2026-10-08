@@ -15,7 +15,11 @@ from typing import Any
 
 from src.data.base import BaseDataset
 from src.data.index import RecordIndexRow, read_jsonl, write_hash, write_jsonl
-from src.data.samples import UnifiedSample
+from src.data.samples import (
+    SUBJECT_IDENTITY_RESOLVED,
+    SUBJECT_IDENTITY_UNRESOLVED,
+    UnifiedSample,
+)
 
 
 DATASET = "ppg-dalia"
@@ -80,6 +84,10 @@ def build_index(root: str | Path, output: str | Path | None = None) -> Path:
                     role_reference=ROLE_REFERENCE,
                     qc_status="UNKNOWN",
                     qc_reason="requires source-native pickle decode; no eager full-archive read",
+                    subject_identity_status=SUBJECT_IDENTITY_RESOLVED,
+                    subject_identity_namespace=DATASET,
+                    subject_identity_kind="official_subject_id",
+                    subject_source_identity=subject,
                 )
             )
     write_jsonl(rows, output)
@@ -123,7 +131,10 @@ class PPGDaLiAReader(BaseDataset):
         return len(self.rows)
 
     def subject_ids(self) -> frozenset[str]:
-        return frozenset(row.subject_id for row in self.rows)
+        return frozenset(
+            row.subject_id for row in self.rows
+            if row.subject_identity_status == SUBJECT_IDENTITY_RESOLVED and row.subject_id
+        )
 
     def __getitem__(self, index: int) -> UnifiedSample:
         return self.read_record(self.rows[index])
@@ -143,9 +154,17 @@ class PPGDaLiAReader(BaseDataset):
         signal = _extract_signal(payload, device, key).astype(np.float32, copy=False)
         fs = float(row.sampling_rate_hz[0] or 0)
         duration = signal.shape[1] / fs
+        if row.subject_identity_status == SUBJECT_IDENTITY_RESOLVED and row.subject_id:
+            subject_id = row.subject_id
+            status = SUBJECT_IDENTITY_RESOLVED
+            src_id = row.subject_source_identity
+        else:
+            subject_id = None
+            status = SUBJECT_IDENTITY_UNRESOLVED
+            src_id = row.subject_id or row.subject_source_identity
         return UnifiedSample(
             signal=signal,
-            subject_id=row.subject_id,
+            subject_id=subject_id,
             recording_id=row.record_id,
             dataset=DATASET,
             modality=row.modality,
@@ -163,4 +182,8 @@ class PPGDaLiAReader(BaseDataset):
                 "reader_version": "1.0",
             },
             metadata={"session_id": row.session_id, "continuity": row.continuity, "role_reference": row.role_reference},
+            subject_identity_status=status,
+            subject_identity_namespace=row.subject_identity_namespace,
+            subject_identity_kind=row.subject_identity_kind,
+            subject_source_identity=src_id,
         )

@@ -36,6 +36,7 @@ def make_sample(subject, index, label):
     return UnifiedSample(
         signal=np.full((1, 4), float(index + 1), dtype=np.float32),
         subject_id=subject, recording_id=f"recording-{subject}", dataset="synthetic",
+        subject_identity_status="RESOLVED", subject_identity_namespace="synthetic",
         modality="synthetic", sampling_rate_hz=1, start_time_s=float(index), end_time_s=float(index + 1),
         window_id=f"window-{subject}-{index}", window_start_sample=index * 4, window_end_sample=(index + 1) * 4,
         labels={"label": label, "value": float(index + 1)}, provenance={"fixture": True},

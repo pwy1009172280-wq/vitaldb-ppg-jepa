@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from src.data import UnifiedSample
+from src.data.samples import SUBJECT_IDENTITY_RESOLVED
 from src.downstream.core import (
     DATA_READY_FOR_EVALUATION,
     READY_FOR_EVALUATION,
@@ -27,6 +28,8 @@ def _sample(label="positive"):
         window_id="window-1",
         labels={"TEST_FIXTURE": label},
         provenance={"source": "TEST_FIXTURE", "annotation_version": "1"},
+        subject_identity_status=SUBJECT_IDENTITY_RESOLVED,
+        subject_identity_namespace="fixture",
     )
 
 

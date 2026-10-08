@@ -9,6 +9,7 @@ from src.data import (
     assert_subject_disjoint,
     assert_subject_sets_disjoint,
 )
+from src.data.samples import SUBJECT_IDENTITY_RESOLVED
 
 
 def sample(subject: str) -> UnifiedSample:
@@ -22,6 +23,8 @@ def sample(subject: str) -> UnifiedSample:
         start_time_s=0.0,
         end_time_s=0.08,
         channel_names=("lead_I",),
+        subject_identity_status=SUBJECT_IDENTITY_RESOLVED,
+        subject_identity_namespace="synthetic",
     )
 
 

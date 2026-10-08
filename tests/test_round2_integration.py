@@ -7,6 +7,7 @@ import yaml
 
 from src.data import ProcessedPPGUnifiedAdapter
 from src.data.processed_dataset import ProcessedPPGDataset
+from src.data.samples import SUBJECT_IDENTITY_UNRESOLVED
 from scripts.train_unified import run_training
 from scripts.run_downstream import run_downstream
 
@@ -35,7 +36,10 @@ def test_processed_ppg_bridge_preserves_identity_and_provenance(tmp_path):
     root, manifest = _fixture(tmp_path)
     legacy = ProcessedPPGDataset(manifest, root, "fixture-v1", 8)
     sample = ProcessedPPGUnifiedAdapter(legacy)[0]
-    assert sample.subject_id == "1"
+    # VitalDB caseid is a case identity, not a proven patient -> UNRESOLVED
+    assert sample.subject_id is None
+    assert sample.subject_identity_status == SUBJECT_IDENTITY_UNRESOLVED
+    assert sample.subject_source_identity == "1"
     assert sample.recording_id == "tid"
     assert sample.window_id == "1:tid:0"
     assert sample.window_start_sample == 0 and sample.window_end_sample == 8
@@ -69,8 +73,12 @@ def test_round2_daily_use_training_to_downstream_and_disk_reload(tmp_path):
     downstream_config = {
         "encoder_config": str(train_path), "checkpoint": str(checkpoint),
         "data": {"manifest": str(manifest), "processed_root": str(root),
-                 "expected_preprocessing_version": "fixture-v1", "input_length": 8},
-        "split": {"train": ["1", "2"], "validation": ["3", "4"], "test": ["5", "6"]},
+                 "expected_preprocessing_version": "fixture-v1", "input_length": 8,
+                 "subject_resolver": {"1": "fixture-p1", "2": "fixture-p2", "3": "fixture-p3",
+                                      "4": "fixture-p4", "5": "fixture-p5", "6": "fixture-p6"},
+                 "subject_namespace": "fixture-vitaldb"},
+        "split": {"train": ["fixture-p1", "fixture-p2"], "validation": ["fixture-p3", "fixture-p4"],
+                  "test": ["fixture-p5", "fixture-p6"]},
         "downstream": {"experiment_name": "daily-smoke", "results_root": str(tmp_path / "results"),
                        "target": "target", "representations": ["final_layer"], "metrics": ["accuracy"],
                        "pooling": "mean", "epochs": 1, "batch_size": 2},

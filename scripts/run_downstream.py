@@ -43,7 +43,13 @@ def run_downstream(config_path: str | Path):
     data = raw["data"]
     legacy = ProcessedPPGDataset(data["manifest"], data["processed_root"],
                                  data.get("expected_preprocessing_version"), data.get("input_length", 5000))
-    dataset = ProcessedPPGUnifiedAdapter(legacy, sampling_rate_hz=float(data.get("sampling_rate_hz", 500.0)))
+    resolver_map = data.get("subject_resolver")
+    subject_resolver = (lambda caseid: resolver_map[caseid]) if resolver_map else None
+    dataset = ProcessedPPGUnifiedAdapter(
+        legacy, sampling_rate_hz=float(data.get("sampling_rate_hz", 500.0)),
+        subject_resolver=subject_resolver,
+        subject_namespace=data.get("subject_namespace"),
+    )
     split = _load_split(raw["split"])
     checkpoint = Path(raw["checkpoint"])
     payload = torch.load(checkpoint, map_location="cpu", weights_only=False)

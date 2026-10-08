@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from .base import BaseDataset, SubjectLeakageError
+from .base import BaseDataset, SubjectIdentityError, SubjectLeakageError
 from .samples import UnifiedSample
 from .splits import SubjectSplit
 
@@ -40,6 +40,11 @@ class SplitAwareDataset:
 
     def __getitem__(self, index: int) -> UnifiedSample:
         sample = self.dataset[index]
+        if sample.subject_id is None:
+            raise SubjectIdentityError(
+                "SplitAwareDataset requires RESOLVED subjects; "
+                f"sample {index} of dataset {self.dataset.name!r} is unresolved"
+            )
         if sample.subject_id not in self.context.subject_ids:
             raise SubjectLeakageError(
                 f"subject {sample.subject_id!r} is not declared in "
@@ -49,4 +54,3 @@ class SplitAwareDataset:
 
     def subject_ids(self) -> frozenset[str]:
         return frozenset(self[index].subject_id for index in range(len(self)))
-

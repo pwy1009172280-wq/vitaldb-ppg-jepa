@@ -13,12 +13,16 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
+SUBJECT_IDENTITY_RESOLVED = "RESOLVED"
+SUBJECT_IDENTITY_UNRESOLVED = "SUBJECT_IDENTITY_UNRESOLVED"
+SUBJECT_IDENTITY_STATUSES = (SUBJECT_IDENTITY_RESOLVED, SUBJECT_IDENTITY_UNRESOLVED)
+
 
 @dataclass(frozen=True)
 class RecordIndexRow:
     dataset: str
     dataset_version: str
-    subject_id: str
+    subject_id: str | None
     record_id: str
     segment_id: str | None
     session_id: str | None
@@ -36,6 +40,22 @@ class RecordIndexRow:
     role_reference: str
     qc_status: str
     qc_reason: str | None = None
+    subject_identity_status: str = SUBJECT_IDENTITY_UNRESOLVED
+    subject_identity_namespace: str | None = None
+    subject_identity_kind: str | None = None
+    subject_source_identity: str | None = None
+    subject_identity_mapping_ref: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.subject_identity_status not in SUBJECT_IDENTITY_STATUSES:
+            raise ValueError(
+                f"subject_identity_status must be one of {SUBJECT_IDENTITY_STATUSES}"
+            )
+        if self.subject_identity_status == SUBJECT_IDENTITY_RESOLVED:
+            if not isinstance(self.subject_id, str) or not self.subject_id:
+                raise ValueError("RESOLVED index row requires a non-empty subject_id")
+        # UNRESOLVED rows may retain a legacy identifier string; readers decide
+        # whether to surface it as subject_source_identity when building samples.
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -63,9 +83,7 @@ def read_jsonl(path: str | Path) -> Iterator[RecordIndexRow]:
                 payload["channel_name"] = tuple(payload["channel_name"])
                 payload["sampling_rate_hz"] = tuple(payload["sampling_rate_hz"])
                 payload["unit"] = tuple(payload["unit"])
-                yield RecordIndexRow(
-                    **payload,
-                )
+                yield RecordIndexRow(**payload)
             except Exception as exc:
                 raise ValueError(f"invalid index row {line_number}: {exc}") from exc
 

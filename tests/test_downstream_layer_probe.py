@@ -61,6 +61,7 @@ class SyntheticDataset(BaseDataset):
 def sample(subject, index, value):
     return UnifiedSample(
         signal=np.full((1, 8), value, dtype=np.float32), subject_id=subject,
+        subject_identity_status="RESOLVED", subject_identity_namespace="synthetic",
         recording_id=f"{subject}-recording", dataset="synthetic", modality="synthetic",
         sampling_rate_hz=8, start_time_s=float(index), end_time_s=float(index + 1),
         window_id=f"window-{index}", window_start_sample=index * 8, window_end_sample=(index + 1) * 8,

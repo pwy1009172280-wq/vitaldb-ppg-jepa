@@ -1,6 +1,6 @@
 """Dataset contracts and adapters for the biosignal research pipeline."""
 
-from .base import BaseDataset, SubjectLeakageError, assert_subject_disjoint, assert_subject_sets_disjoint
+from .base import BaseDataset, SubjectIdentityError, SubjectLeakageError, assert_subject_disjoint, assert_subject_sets_disjoint
 from .access import SplitAwareDataset, SplitContext
 from .leakage import (
     assert_manifest_splits_disjoint,
@@ -17,6 +17,7 @@ __all__ = [
     "SplitAwareDataset",
     "SplitContext",
     "SubjectLeakageError",
+    "SubjectIdentityError",
     "UnifiedSample",
     "assert_subject_disjoint",
     "assert_subject_sets_disjoint",

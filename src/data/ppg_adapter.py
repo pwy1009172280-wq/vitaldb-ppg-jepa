@@ -1,13 +1,17 @@
 """Thin adapter from the frozen ProcessedPPGDataset to the public data contract."""
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import numpy as np
 
 from .base import BaseDataset
 from .processed_dataset import ProcessedPPGDataset
-from .samples import UnifiedSample
+from .samples import (
+    SUBJECT_IDENTITY_RESOLVED,
+    SUBJECT_IDENTITY_UNRESOLVED,
+    UnifiedSample,
+)
 
 
 class ProcessedPPGUnifiedAdapter(BaseDataset):
@@ -17,12 +21,20 @@ class ProcessedPPGUnifiedAdapter(BaseDataset):
     its row identity and waveform into ``UnifiedSample``.  Sampling rate and
     channel metadata are explicit adapter inputs because the legacy manifest
     does not store them.
+
+    ``caseid`` is a *case* identity, not a proven patient identity.  Unless an
+    explicit ``subject_resolver`` (caseid -> canonical patient ID) is supplied,
+    samples are emitted with ``subject_id=None`` and
+    ``SUBJECT_IDENTITY_UNRESOLVED``; the raw caseid is preserved in
+    ``subject_source_identity`` and provenance.
     """
 
     def __init__(self, dataset: ProcessedPPGDataset, *, sampling_rate_hz: float = 500.0,
                  dataset_name: str = "vitaldb", modality: str = "PPG",
                  channel_names: tuple[str, ...] = ("SNUADC/PLETH",),
-                 units: tuple[str, ...] = (), source_provenance: Mapping[str, Any] | None = None):
+                 units: tuple[str, ...] = (), source_provenance: Mapping[str, Any] | None = None,
+                 subject_resolver: Callable[[str], str] | None = None,
+                 subject_namespace: str | None = None):
         if not isinstance(dataset, ProcessedPPGDataset):
             raise TypeError("dataset must be ProcessedPPGDataset")
         self.dataset = dataset
@@ -32,6 +44,8 @@ class ProcessedPPGUnifiedAdapter(BaseDataset):
         self.channel_names = tuple(channel_names)
         self.units = tuple(units)
         self.source_provenance = dict(source_provenance or {})
+        self.subject_resolver = subject_resolver
+        self.subject_namespace = subject_namespace
         if self.channel_names and len(self.channel_names) != 1:
             raise ValueError("ProcessedPPGUnifiedAdapter currently exposes one channel")
 
@@ -60,9 +74,19 @@ class ProcessedPPGUnifiedAdapter(BaseDataset):
             **self.source_provenance,
         }
         labels = {key.removeprefix("label_"): value for key, value in row.items() if key.startswith("label_") and value != ""}
+        if self.subject_resolver is not None:
+            subject_id = self.subject_resolver(caseid)
+            if not isinstance(subject_id, str) or not subject_id:
+                raise ValueError(f"subject_resolver returned invalid subject for caseid={caseid!r}")
+            status = SUBJECT_IDENTITY_RESOLVED
+            namespace = self.subject_namespace
+        else:
+            subject_id = None
+            status = SUBJECT_IDENTITY_UNRESOLVED
+            namespace = None
         return UnifiedSample(
             signal=waveform,
-            subject_id=caseid,
+            subject_id=subject_id,
             recording_id=tid,
             dataset=self.name,
             modality=self.modality,
@@ -76,4 +100,8 @@ class ProcessedPPGUnifiedAdapter(BaseDataset):
             window_id=f"{caseid}:{tid}:{window_index}",
             window_start_sample=start_sample,
             window_end_sample=end_sample,
+            subject_identity_status=status,
+            subject_identity_namespace=namespace,
+            subject_identity_kind="case_id" if status == SUBJECT_IDENTITY_RESOLVED else "case_id_unresolved",
+            subject_source_identity=caseid,
         )

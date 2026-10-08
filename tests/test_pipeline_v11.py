@@ -9,7 +9,7 @@ from src.data import (
     find_subject_overlap,
     plan_subject_split,
 )
-from src.data.samples import UnifiedSample
+from src.data.samples import SUBJECT_IDENTITY_RESOLVED, UnifiedSample
 from src.preprocessing import PreprocessingRegistry, TransformNotFoundError
 
 
@@ -23,6 +23,8 @@ def synthetic_sample(subject: str, value: float = 0.0) -> UnifiedSample:
         sampling_rate_hz=100.0,
         start_time_s=0.0,
         end_time_s=0.04,
+        subject_identity_status=SUBJECT_IDENTITY_RESOLVED,
+        subject_identity_namespace="synthetic",
     )
 
 
@@ -71,4 +73,3 @@ def test_preprocessing_registry_composes_registered_synthetic_transform():
         registry.get("missing")
     with pytest.raises(ValueError, match="already"):
         registry.register("add_one", lambda sample: sample)
-

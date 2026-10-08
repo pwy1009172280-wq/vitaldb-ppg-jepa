@@ -13,6 +13,7 @@ from src.data import (
     plan_subject_split,
 )
 from src.data.base import BaseDataset
+from src.data.samples import SUBJECT_IDENTITY_RESOLVED
 from src.experiments import EvaluationProtocol, ExperimentRunManifest
 from src.preprocessing import FittedTransform, PreprocessingRegistry, StatelessTransform
 
@@ -34,6 +35,8 @@ def synthetic_sample(subject: str, value: float = 0.0) -> UnifiedSample:
         window_id=f"window-{subject}",
         window_start_sample=0,
         window_end_sample=4,
+        subject_identity_status=SUBJECT_IDENTITY_RESOLVED,
+        subject_identity_namespace="synthetic",
     )
 
 
@@ -141,4 +144,3 @@ def test_manifest_and_protocol_serialization():
     assert dataset.to_dict()["git_state"] == "clean"
     assert manifest.to_dict()["evaluation_protocol"]["protocol_type"] == "linear_probe"
     assert manifest.to_dict()["pretraining_subject_ids"] == ["pretrain-1"]
-
