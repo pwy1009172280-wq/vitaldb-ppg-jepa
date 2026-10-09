@@ -11,6 +11,7 @@ OUT = "/scratch-shared/wpu/mimic_snapshot"
 
 
 def scan_tar(path, subjects):
+    shard = os.path.basename(path)
     tar = tarfile.open(path, "r:")
     try:
         for m in tar.getmembers():
@@ -23,7 +24,7 @@ def scan_tar(path, subjects):
                 continue
             content = f.read(8192).decode("utf-8", "replace")
             if "PLETH" in content:
-                subjects.setdefault(subj, []).append(m.name)
+                subjects.setdefault(subj, []).append((shard, m.name))
     finally:
         tar.close()
 
@@ -52,7 +53,15 @@ with open(os.path.join(OUT, "mimic_candidate_cohort.csv"), "w", newline="") as f
     for i, subj in enumerate(cohort):
         w.writerow([subj, len(subjects[subj]), i + 1])
 
+# segment manifest for the 1000 cohort subjects (subject -> shard + member path)
+with open(os.path.join(OUT, "mimic_segment_manifest.csv"), "w", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["subject_id", "shard", "member_path"])
+    for subj in cohort:
+        for shard, member in sorted(subjects[subj]):
+            w.writerow([subj, shard, member])
+
 print("MIMIC_SUBJECTS_WITH_PLETH", len(subjects))
 print("MIMIC_CANDIDATE_COHORT", len(cohort))
-print("COHORT_HEAD", cohort[:5])
+print("MIMIC_MANIFEST_ROWS", sum(len(subjects[s]) for s in cohort))
 print("MIMIC_COHORT_SAVED", os.path.join(OUT, "mimic_candidate_cohort.csv"))
