@@ -10,4 +10,8 @@
 #SBATCH --output=/scratch-shared/wpu/pretrain_%j.log
 #SBATCH --error=/scratch-shared/wpu/pretrain_%j.err
 
-/scratch-shared/wpu/micromamba-root/envs/ppg-ssl-integration/bin/python -u /scratch-shared/wpu/run_formal_pretrain.py $SEED /scratch-shared/wpu/mimic_pretrain_windows /scratch-shared/wpu/pretrain_results seed-$SEED
+: "${PPG_JEPA_RELEASE_DIR:?submit with PPG_JEPA_RELEASE_DIR pointing to the clean exact-SHA release}"
+: "${SEED:?submit with SEED=11 or SEED=29}"
+export PPG_JEPA_CODE_ROOT="$PPG_JEPA_RELEASE_DIR"
+export PYTHONPATH="$PPG_JEPA_RELEASE_DIR${PYTHONPATH:+:$PYTHONPATH}"
+/scratch-shared/wpu/micromamba-root/envs/ppg-ssl-integration/bin/python -u "$PPG_JEPA_RELEASE_DIR/scripts/run_formal_pretrain.py" "$SEED" /scratch-shared/wpu/mimic_pretrain_windows /scratch-shared/wpu/pretrain_results "seed-$SEED"
