@@ -1,9 +1,11 @@
 """Stage 1 MIMIC pretraining preprocessing: decode -> PLETH -> windows -> z-score -> tensor."""
 
 import csv
+import atexit
 import hashlib
 import json
 import os
+import shutil
 import sys
 import tarfile
 import tempfile
@@ -20,6 +22,7 @@ ARCH = "/projects/prjs2287/biosignal_bank/datasets/mimic3wdb-matched/archives/1.
 SNAP = "/scratch-shared/wpu/mimic_snapshot"
 OUT = "/scratch-shared/wpu/mimic_pretrain_windows"
 WINDOWS_PER_SUBJECT = 225
+_ARCHIVE_CACHE = {}
 
 
 def sha256(s):
@@ -35,16 +38,36 @@ def decode_segment(tar_path, member):
     import wfdb
 
     base = member[:-4] if member.endswith(".hea") else member
+    tar_path = os.path.abspath(tar_path)
+    if tar_path not in _ARCHIVE_CACHE:
+        archive = tarfile.open(tar_path, "r:")
+        members = {item.name: item for item in archive.getmembers()}
+        _ARCHIVE_CACHE[tar_path] = (archive, members)
+    archive, members = _ARCHIVE_CACHE[tar_path]
     with tempfile.TemporaryDirectory(prefix="mimic-seg-") as scratch:
-        with tarfile.open(tar_path, "r:") as t:
-            t.extract(member, scratch)
-            t.extract(base + ".dat", scratch)
+        for name in (member, base + ".dat"):
+            info = members.get(name)
+            if info is None or not info.isfile():
+                raise FileNotFoundError(f"missing regular tar member {name!r} in {tar_path}")
+            target = os.path.join(scratch, name)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with archive.extractfile(info) as source, open(target, "wb") as dest:
+                shutil.copyfileobj(source, dest)
         record = wfdb.rdrecord(os.path.join(scratch, base), pn_dir=None)
         names = [str(n) for n in record.sig_name]
         if names.count("PLETH") != 1:
             return None, None
         idx = names.index("PLETH")
         return record.p_signal[:, idx].astype(np.float32), float(record.fs)
+
+
+def close_archive_cache():
+    for archive, _ in _ARCHIVE_CACHE.values():
+        archive.close()
+    _ARCHIVE_CACHE.clear()
+
+
+atexit.register(close_archive_cache)
 
 
 def sha256_file(path):
