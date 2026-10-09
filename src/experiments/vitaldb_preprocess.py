@@ -13,33 +13,26 @@ WINDOW_SECONDS = 16.0
 def parse_pleth_csv(path: str) -> tuple[np.ndarray, float]:
     """Parse a VitalDB SNUADC/PLETH track CSV into (signal, fs).
 
-    The CSV is ``Time,SNUADC/PLETH`` rows at 500 Hz; empty value cells are NaN
-    (device not recording yet / invalid). Returns float32 signal + 500.0 Hz.
+    The waveform CSV is a continuous grid at 500 Hz with IMPLICIT time
+    (row_index × interval) and sparse explicit time cells (start/end only).
+    An empty value cell is NaN (device not recording / invalid).
     """
-    times: list[float] = []
     values: list[float] = []
+    first_times: list[float] = []
     with open(path) as f:
-        header = f.readline()
+        f.readline()  # header
         for line in f:
             line = line.strip()
             if not line:
                 continue
             parts = line.split(",")
-            if len(parts) < 2:
-                continue
-            try:
-                t = float(parts[0])
-            except ValueError:
-                continue
-            v = float(parts[1]) if parts[1].strip() != "" else np.nan
-            times.append(t)
-            values.append(v)
-    if not times:
-        return np.zeros(0, dtype=np.float32), 500.0
-    times_arr = np.asarray(times, dtype=np.float64)
-    if times_arr.size >= 2:
-        diffs = np.diff(times_arr)
-        fs = 1.0 / float(np.median(diffs[diffs > 0])) if (diffs > 0).any() else 500.0
+            tcell = parts[0].strip() if parts else ""
+            vcell = parts[1].strip() if len(parts) > 1 else ""
+            if tcell != "" and len(first_times) < 2:
+                first_times.append(float(tcell))
+            values.append(float(vcell) if vcell != "" else np.nan)
+    if len(first_times) >= 2 and first_times[1] > first_times[0]:
+        fs = 1.0 / (first_times[1] - first_times[0])
     else:
         fs = 500.0
     return np.asarray(values, dtype=np.float32), float(fs)

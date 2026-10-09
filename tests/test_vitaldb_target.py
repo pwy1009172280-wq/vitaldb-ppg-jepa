@@ -20,6 +20,20 @@ def test_parse_pleth_csv_500hz_nan():
     assert np.isnan(sig[3])
 
 
+def test_parse_pleth_sparse_implicit_time():
+    import tempfile
+
+    with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as f:
+        f.write("Time,SNUADC/PLETH\n0,\n0.002,\n,1.0\n,2.0\n,3.0\n")
+        path = f.name
+    sig, fs = parse_pleth_csv(path)
+    assert fs == pytest.approx(500.0, rel=1e-3)
+    # 5 data rows: NaN, NaN, 1.0, 2.0, 3.0
+    assert sig.shape == (5,)
+    assert np.isnan(sig[0]) and np.isnan(sig[1])
+    assert list(sig[2:]) == [1.0, 2.0, 3.0]
+
+
 def test_hr_full_coverage_weighted_median():
     t = np.array([0.0, 4.0, 8.0, 12.0])
     v = np.array([60.0, 70.0, 80.0, 90.0])
