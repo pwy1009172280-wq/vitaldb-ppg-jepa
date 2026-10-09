@@ -23,9 +23,17 @@ def _index(tmp_path):
     return path
 
 
-def test_mimic_reader_requires_wfdb(tmp_path):
+def test_mimic_reader_requires_wfdb(tmp_path, monkeypatch):
     path = _index(tmp_path)
     reader = MimicPPGReader(tmp_path, path)
+    real_import = __import__
+
+    def import_without_wfdb(name, *args, **kwargs):
+        if name == "wfdb":
+            raise ImportError("simulated missing wfdb")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", import_without_wfdb)
     with pytest.raises(ImportError, match="wfdb"):
         reader[0]
 
