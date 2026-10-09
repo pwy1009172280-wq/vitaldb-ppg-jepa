@@ -89,6 +89,16 @@ class Trainer:
         except StopIteration:
             return torch.device("cpu")
 
+    def _move_batch_to_device(self, batch: Any) -> Any:
+        device = self._model_device()
+        if isinstance(batch, torch.Tensor):
+            return batch.to(device)
+        if isinstance(batch, dict):
+            return {key: self._move_batch_to_device(value) for key, value in batch.items()}
+        if isinstance(batch, (list, tuple)):
+            return type(batch)(self._move_batch_to_device(value) for value in batch)
+        return batch
+
     def install_signal_handlers(self) -> None:
         """Install SIGINT/SIGTERM handlers that only set the stop flag."""
 
@@ -160,6 +170,7 @@ class Trainer:
                 if batch_index < start_batch_idx:
                     continue
                 with self._autocast() if training else torch.no_grad():
+                    batch = self._move_batch_to_device(batch)
                     output = self.model.forward(batch)
                     loss_output = self.model.compute_loss(output, batch)
                     if not isinstance(loss_output, LossOutput):
