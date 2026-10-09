@@ -64,8 +64,10 @@ def main():
     # seeded permutation (per seed RNG stream)
     rng = np.random.default_rng(seed)
     windows = windows[rng.permutation(len(windows))]
+    windows = windows[:, None, :]  # [N, 1, 2000] channel dim
     dataset = TensorDataset(torch.from_numpy(windows))
-    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True, num_workers=0)
+    collate = lambda batch: {"waveform": torch.stack([x[0] for x in batch])}  # noqa: E731
+    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, drop_last=True, num_workers=0, collate_fn=collate)
 
     optimizer = torch.optim.AdamW(adamw_parameter_groups(adapter, WEIGHT_DECAY), lr=LR)
     scheduler = build_warmup_cosine_scheduler(optimizer, warmup_steps=WARMUP, total_steps=MAX_UPDATES, min_lr_ratio=MIN_LR / LR)
