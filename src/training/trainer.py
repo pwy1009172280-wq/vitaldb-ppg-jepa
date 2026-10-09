@@ -29,6 +29,7 @@ class TrainerConfig:
     scheduler_step_policy: str = "epoch"
     max_updates: int | None = None
     max_batches: int | None = None
+    checkpoint_interval_updates: int | None = None
 
     def __post_init__(self) -> None:
         if self.grad_accum_steps <= 0:
@@ -41,6 +42,8 @@ class TrainerConfig:
             raise ValueError("max_updates must be positive")
         if self.max_batches is not None and self.max_batches <= 0:
             raise ValueError("max_batches must be positive")
+        if self.checkpoint_interval_updates is not None and self.checkpoint_interval_updates <= 0:
+            raise ValueError("checkpoint_interval_updates must be positive")
 
 
 class Trainer:
@@ -189,9 +192,20 @@ class Trainer:
                     pending += 1
                     is_last = batch_index == len(loader) - 1 if hasattr(loader, "__len__") else False
                     if pending == self.config.grad_accum_steps or is_last:
-                        self._step_optimizer(pending)
+                        did_update = self._step_optimizer(pending)
                         self.optimizer.zero_grad(set_to_none=True)
                         pending = 0
+                        if (
+                            did_update
+                            and self.checkpoint_manager is not None
+                            and self.config.checkpoint_interval_updates is not None
+                            and self.global_step % self.config.checkpoint_interval_updates == 0
+                        ):
+                            self._save_checkpoint(
+                                f"step-{self.global_step}", epoch=epoch, global_step=self.global_step,
+                                best_metric_name=self.best_metric_name, best_metric_value=self.best_metric_value,
+                                epoch_complete=False, next_batch_idx=batch_index + 1,
+                            )
                         if self._stop_event.is_set():
                             raise TrainingInterrupted(epoch, batch_index + 1)
                 if budget is not None and self.global_step >= budget:
